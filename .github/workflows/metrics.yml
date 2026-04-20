@@ -4,9 +4,9 @@ on:
   workflow_call:
     inputs:
       exclude-dirs:
-        description: 'Comma-separated directories to exclude'
+        description: "Comma-separated directories to exclude"
         required: false
-        default: '.git,node_modules,dist,build,external,.venv,__pycache__'
+        default: ".git,node_modules,dist,build,external,.venv,__pycache__"
         type: string
 
 jobs:

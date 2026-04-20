@@ -7,6 +7,7 @@ Org-level shared workflows and configuration for all anolishq repositories.
 ### docs-check.yml
 
 Validates documentation on PRs and pushes:
+
 - **Markdown lint** — style and formatting checks
 - **VitePress build** — catches Vue template parsing errors before they break the docs site
 
@@ -29,6 +30,7 @@ Inputs:
 ### metrics.yml
 
 Collects repository metrics (runs on main, not PRs):
+
 - tokei (lines of code by language)
 - cloc (detailed code statistics)
 - tree (directory structure)
@@ -49,5 +51,6 @@ jobs:
 ### .markdownlint.json
 
 Shared markdownlint configuration fetched by `docs-check.yml`:
+
 - Line length: 140 (relaxed for technical docs)
 - MD033 disabled (allows inline HTML for VitePress components)

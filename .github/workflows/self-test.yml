@@ -10,8 +10,8 @@ jobs:
   docs-check:
     uses: ./.github/workflows/docs-check.yml
     with:
-      docs-path: 'profile'
+      docs-path: "profile"
       markdownlint-globs: |
         profile/*.md
         README.md
-      skip-vitepress: true  # This repo has no real docs to build
+      skip-vitepress: true # This repo has no real docs to build

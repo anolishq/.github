@@ -4,12 +4,12 @@ on:
   workflow_call:
     inputs:
       docs-path:
-        description: 'Path to docs directory'
+        description: "Path to docs directory"
         required: false
-        default: 'docs'
+        default: "docs"
         type: string
       markdownlint-globs:
-        description: 'Globs for markdownlint'
+        description: "Globs for markdownlint"
         required: false
         default: |
           docs/**/*.md
@@ -17,7 +17,7 @@ on:
           CONTRIBUTING.md
         type: string
       skip-vitepress:
-        description: 'Skip VitePress build check'
+        description: "Skip VitePress build check"
         required: false
         default: false
         type: boolean
