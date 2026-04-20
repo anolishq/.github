@@ -1,0 +1,70 @@
+name: Repository Metrics
+
+on:
+  workflow_call:
+    inputs:
+      exclude-dirs:
+        description: 'Comma-separated directories to exclude'
+        required: false
+        default: '.git,node_modules,dist,build,external,.venv,__pycache__'
+        type: string
+
+jobs:
+  collect:
+    name: Collect Metrics
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install tools
+        run: |
+          cargo install tokei --locked
+          sudo apt-get update && sudo apt-get install -y cloc tree jq
+
+      - name: Collect metrics
+        run: |
+          EXCLUDES="${{ inputs.exclude-dirs }}"
+          mkdir -p metrics
+
+          # tokei
+          tokei --exclude "$EXCLUDES" --output json > metrics/tokei.json
+          tokei --exclude "$EXCLUDES" > metrics/tokei.txt
+
+          # cloc
+          cloc . --exclude-dir=$EXCLUDES --json --out=metrics/cloc.json
+
+          # tree
+          TREE_EXCLUDE=$(echo "$EXCLUDES" | tr ',' '|')
+          tree -a -I "$TREE_EXCLUDE" > metrics/tree.txt
+
+          # metadata
+          jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg sha "${{ github.sha }}" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{repo: $repo, sha: $sha, timestamp: $ts}' > metrics/meta.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: metrics-${{ github.event.repository.name }}-${{ github.run_number }}
+          path: metrics/
+          retention-days: 90
+
+      - name: Generate summary
+        run: |
+          {
+            echo "## Repository Metrics"
+            echo ""
+            echo "### Lines of Code (tokei)"
+            echo '```'
+            cat metrics/tokei.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

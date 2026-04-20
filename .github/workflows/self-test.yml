@@ -1,0 +1,17 @@
+name: Self Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  docs-check:
+    uses: ./.github/workflows/docs-check.yml
+    with:
+      docs-path: 'profile'
+      markdownlint-globs: |
+        profile/*.md
+        README.md
+      skip-vitepress: true  # This repo has no real docs to build

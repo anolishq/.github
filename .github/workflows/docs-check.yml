@@ -1,0 +1,117 @@
+name: Docs Check
+
+on:
+  workflow_call:
+    inputs:
+      docs-path:
+        description: 'Path to docs directory'
+        required: false
+        default: 'docs'
+        type: string
+      markdownlint-globs:
+        description: 'Globs for markdownlint'
+        required: false
+        default: |
+          docs/**/*.md
+          README.md
+          CONTRIBUTING.md
+        type: string
+      skip-vitepress:
+        description: 'Skip VitePress build check'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch shared markdownlint config
+        run: |
+          curl -sL https://raw.githubusercontent.com/anolishq/.github/main/.markdownlint.json \
+            -o .markdownlint.json
+
+      - name: Markdown Lint
+        id: lint
+        continue-on-error: true
+        uses: davidanson/markdownlint-cli2-action@v16
+        with:
+          globs: ${{ inputs.markdownlint-globs }}
+
+      - name: Generate summary
+        if: always()
+        run: |
+          {
+            echo "## Markdown Lint"
+            if [ "${{ steps.lint.outcome }}" == "success" ]; then
+              echo "✅ All files passed"
+            else
+              echo "❌ Issues found"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if linting failed
+        if: steps.lint.outcome == 'failure'
+        run: exit 1
+
+  vitepress-build:
+    name: VitePress Build
+    if: ${{ !inputs.skip-vitepress }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Create VitePress scaffold
+        run: |
+          mkdir -p .vitepress-check/docs/.vitepress
+          cd .vitepress-check
+          cat > package.json << 'EOF'
+          {
+            "private": true,
+            "type": "module",
+            "scripts": { "build": "vitepress build docs" },
+            "devDependencies": { "vitepress": "^1.6.4" },
+            "pnpm": { "onlyBuiltDependencies": ["esbuild"] }
+          }
+          EOF
+          cat > docs/.vitepress/config.mts << 'EOF'
+          import { defineConfig } from 'vitepress'
+          export default defineConfig({
+            title: 'Build Check',
+            ignoreDeadLinks: true,
+          })
+          EOF
+
+      - name: Copy docs
+        run: |
+          if [ -d "${{ inputs.docs-path }}" ]; then
+            cp -r ${{ inputs.docs-path }}/* .vitepress-check/docs/
+          else
+            echo "No docs directory found at ${{ inputs.docs-path }}, skipping"
+            exit 0
+          fi
+
+      - name: Build
+        working-directory: .vitepress-check
+        run: |
+          pnpm install --frozen-lockfile || pnpm install
+          pnpm build
+
+      - name: Generate summary
+        if: always()
+        run: |
+          {
+            echo "## VitePress Build"
+            echo "✅ Docs build successfully with VitePress"
+          } >> "$GITHUB_STEP_SUMMARY"
