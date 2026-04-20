@@ -29,10 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Fetch shared markdownlint config
+      - name: Ensure markdownlint config
         run: |
-          curl -sL https://raw.githubusercontent.com/anolishq/.github/main/.markdownlint.json \
-            -o .markdownlint.json
+          if [ ! -f .markdownlint.json ]; then
+            echo "No local config found, fetching org default"
+            curl -sL https://raw.githubusercontent.com/anolishq/.github/main/.markdownlint.json \
+              -o .markdownlint.json
+          else
+            echo "Using local .markdownlint.json"
+          fi
 
       - name: Markdown Lint
         id: lint
