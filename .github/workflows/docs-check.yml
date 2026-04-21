@@ -33,7 +33,7 @@ jobs:
         run: |
           if [ ! -f .markdownlint.json ]; then
             echo "No local config found, fetching org default"
-            curl -sL https://raw.githubusercontent.com/anolishq/.github/main/.markdownlint.json \
+            curl -sL https://raw.githubusercontent.com/anolishq/.github/v1/.markdownlint.json \
               -o .markdownlint.json
           else
             echo "Using local .markdownlint.json"
