@@ -8,11 +8,22 @@ on:
         required: false
         default: ".git,node_modules,dist,build,external,.venv,__pycache__"
         type: string
+      tag:
+        description: "Release tag to embed in metrics.json (defaults to short SHA)"
+        required: false
+        default: ""
+        type: string
+    outputs:
+      metrics-json-path:
+        description: "Workspace-relative path to the synthesised metrics.json"
+        value: ${{ jobs.collect.outputs.metrics_json_path }}
 
 jobs:
   collect:
     name: Collect Metrics
     runs-on: ubuntu-latest
+    outputs:
+      metrics_json_path: ${{ steps.synth.outputs.path }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,6 +62,23 @@ jobs:
             --arg sha "${{ github.sha }}" \
             --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{repo: $repo, sha: $sha, timestamp: $ts}' > metrics/meta.json
+
+      - name: Synthesise metrics.json
+        id: synth
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG=$(git rev-parse --short HEAD); fi
+          jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg tag  "$TAG" \
+            --arg sha  "${{ github.sha }}" \
+            --arg ts   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --slurpfile tokei metrics/tokei.json \
+            '{
+              repo: $repo, tag: $tag, sha: $sha, collected_at: $ts,
+              tokei: $tokei[0]
+            }' > metrics/metrics.json
+          echo "path=metrics/metrics.json" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
