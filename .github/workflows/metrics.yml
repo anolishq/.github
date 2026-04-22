@@ -46,8 +46,8 @@ jobs:
           mkdir -p metrics
 
           # tokei
-          tokei --exclude "$EXCLUDES" --output json > metrics/tokei.json
-          tokei --exclude "$EXCLUDES" > metrics/tokei.txt
+          tokei --exclude "$EXCLUDES" --exclude "package-lock.json" --output json > metrics/tokei.json
+          tokei --exclude "$EXCLUDES" --exclude "package-lock.json" > metrics/tokei.txt
 
           # cloc
           cloc . --exclude-dir=$EXCLUDES --json --out=metrics/cloc.json
