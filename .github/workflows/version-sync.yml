@@ -19,11 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout .github-anolishq
+      - name: Checkout org .github
         uses: actions/checkout@v4
         with:
-          repository: anolishq/.github-anolishq
-          path: .github-anolishq
+          repository: anolishq/.github
+          path: _github
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,5 +31,5 @@ jobs:
           python-version: ${{ inputs.python-version }}
 
       - name: Run version sync check
-        run: python .github-anolishq/scripts/assert_version_sync.py
+        run: python _github/scripts/assert_version_sync.py
         working-directory: ${{ inputs.working-directory }}
