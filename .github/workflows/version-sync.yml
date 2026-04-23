@@ -1,0 +1,35 @@
+name: Version Sync Check
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        type: string
+        default: "3.12"
+      working-directory:
+        required: false
+        type: string
+        default: "."
+  workflow_dispatch:
+
+jobs:
+  version-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout .github-anolishq
+        uses: actions/checkout@v4
+        with:
+          repository: anolishq/.github-anolishq
+          path: .github-anolishq
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Run version sync check
+        run: python .github-anolishq/scripts/assert_version_sync.py
+        working-directory: ${{ inputs.working-directory }}
