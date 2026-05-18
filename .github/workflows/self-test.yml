@@ -15,3 +15,4 @@ jobs:
         profile/*.md
         README.md
       skip-vitepress: true # This repo has no real docs to build
+      skip-link-check: true # This repo has no local markdown links to check
