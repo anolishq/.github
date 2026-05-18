@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip-link-check:
+        description: "Skip local dead-link check"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   markdown-lint:
@@ -33,7 +38,7 @@ jobs:
         run: |
           if [ ! -f .markdownlint.json ]; then
             echo "No local config found, fetching org default"
-            curl -sL https://raw.githubusercontent.com/anolishq/.github/v1/.markdownlint.json \
+            curl -sL https://raw.githubusercontent.com/anolishq/.github/v2/.markdownlint.json \
               -o .markdownlint.json
           else
             echo "Using local .markdownlint.json"
@@ -120,3 +125,21 @@ jobs:
             echo "## VitePress Build"
             echo "✅ Docs build successfully with VitePress"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  link-check:
+    name: Link Check
+    if: ${{ !inputs.skip-link-check }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check local links
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: >-
+            --offline
+            --no-progress
+            docs/**/*.md
+            *.md
+          fail: true
+          jobSummary: true
