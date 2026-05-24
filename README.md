@@ -21,8 +21,9 @@ jobs:
 ```
 
 Inputs:
+
 | Input | Default | Description |
-|-------|---------|-------------|
+| ----- | ------- | ----------- |
 | `docs-path` | `docs` | Path to docs directory |
 | `markdownlint-globs` | `docs/**/*.md`, `README.md`, `CONTRIBUTING.md` | Files to lint |
 | `skip-vitepress` | `false` | Skip VitePress build check |
