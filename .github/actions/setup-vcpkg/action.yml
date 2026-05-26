@@ -1,0 +1,62 @@
+name: Setup vcpkg
+description: >
+  Clone and bootstrap vcpkg with working binary caching via actions/cache.
+  Replaces lukka/run-vcpkg whose x-gha binary cache provider was removed
+  from vcpkg in April 2025.
+
+inputs:
+  vcpkg-commit:
+    description: "vcpkg Git commit SHA to checkout"
+    required: true
+  triplet:
+    description: "Target triplet (used in cache key for partition isolation)"
+    required: true
+  token:
+    description: "GitHub token (reserved for future NuGet integration)"
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Clone vcpkg
+      shell: bash
+      run: |
+        set -euo pipefail
+        VCPKG_DIR="${{ github.workspace }}/vcpkg"
+        if [[ ! -d "$VCPKG_DIR/.git" ]]; then
+          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_DIR" --filter=blob:none --no-checkout
+        fi
+        cd "$VCPKG_DIR"
+        git fetch origin "${{ inputs.vcpkg-commit }}" --depth=1
+        git checkout "${{ inputs.vcpkg-commit }}"
+
+    - name: Bootstrap vcpkg (Linux/macOS)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+
+    - name: Bootstrap vcpkg (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        & "${{ github.workspace }}\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+
+    - name: Configure environment
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> "$GITHUB_ENV"
+        echo "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/.vcpkg-binary-cache,readwrite" >> "$GITHUB_ENV"
+        mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
+
+    - name: Restore vcpkg binary cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.vcpkg-binary-cache
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        restore-keys: |
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
