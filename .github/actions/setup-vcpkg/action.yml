@@ -19,6 +19,19 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Prepare binary cache directory
+      shell: bash
+      run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
+
+    - name: Restore vcpkg binary cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.vcpkg-binary-cache
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        restore-keys: |
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
+
     - name: Clone vcpkg
       shell: bash
       run: |
@@ -50,13 +63,3 @@ runs:
         set -euo pipefail
         echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> "$GITHUB_ENV"
         echo "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/.vcpkg-binary-cache,readwrite" >> "$GITHUB_ENV"
-        mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
-
-    - name: Restore vcpkg binary cache
-      uses: actions/cache@v4
-      with:
-        path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
-        restore-keys: |
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
