@@ -16,3 +16,52 @@ jobs:
         README.md
       skip-vitepress: true # This repo has no real docs to build
       skip-link-check: true # This repo has no local markdown links to check
+
+  test-setup-vcpkg:
+    name: Test setup-vcpkg (${{ matrix.os }}, ${{ matrix.triplet }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            triplet: x64-linux-static
+          - os: windows-2022
+            triplet: x64-windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          vcpkg-commit: "66c0373dc7fca549e5803087b9487edfe3aca0a1"
+          triplet: ${{ matrix.triplet }}
+
+      - name: Verify environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "VCPKG_ROOT=$VCPKG_ROOT"
+          echo "VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES"
+          [[ -n "$VCPKG_ROOT" ]] || { echo "FAIL: VCPKG_ROOT not set"; exit 1; }
+          [[ "$VCPKG_BINARY_SOURCES" == *"files,"* ]] || { echo "FAIL: VCPKG_BINARY_SOURCES not configured"; exit 1; }
+          "$VCPKG_ROOT/vcpkg" version
+          [[ -d "${{ github.workspace }}/.vcpkg-binary-cache" ]] || { echo "FAIL: binary cache dir missing"; exit 1; }
+          echo "All checks passed"
+
+      - name: Smoke test — install a small package
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install yaml-cpp --triplet ${{ matrix.triplet }}
+          # Verify binary was cached
+          if ls "${{ github.workspace }}/.vcpkg-binary-cache/"* >/dev/null 2>&1; then
+            echo "OK: binary package cached"
+            ls -la "${{ github.workspace }}/.vcpkg-binary-cache/"
+          else
+            echo "FAIL: no binary packages in cache directory"
+            exit 1
+          fi
