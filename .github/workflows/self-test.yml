@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-24.04
-            triplet: x64-linux-static
+            triplet: x64-linux
           - os: windows-2022
             triplet: x64-windows
     runs-on: ${{ matrix.os }}
