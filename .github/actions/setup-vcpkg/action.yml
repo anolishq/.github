@@ -24,7 +24,7 @@ runs:
       run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
 
     - name: Restore vcpkg binary cache
-      uses: actions/cache@v4
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
         key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
