@@ -1,4 +1,4 @@
-name: Self Test
+name: CI
 
 on:
   push:
@@ -65,3 +65,19 @@ jobs:
             echo "FAIL: no binary packages in cache directory"
             exit 1
           fi
+
+  ok:
+    name: ok
+    if: always()
+    needs:
+      - docs-check
+      - test-setup-vcpkg
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate job results
+        run: |
+          echo "Job results: ${{ toJSON(needs.*.result) }}"
+      - name: Fail if any required job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
