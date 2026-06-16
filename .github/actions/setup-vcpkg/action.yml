@@ -4,10 +4,23 @@ description: >
   Replaces lukka/run-vcpkg whose x-gha binary cache provider was removed
   from vcpkg in April 2025.
 
+  By default the vcpkg tool commit is derived from the consuming repo's
+  vcpkg-configuration.json `default-registry.baseline`, so the tool commit
+  and the port baseline are always the same value and cannot drift. Pass
+  `vcpkg-commit` explicitly only to override that (e.g. to pin the tool to a
+  commit different from the port baseline).
+
 inputs:
   vcpkg-commit:
-    description: "vcpkg Git commit SHA to checkout"
-    required: true
+    description: >
+      vcpkg Git commit SHA to checkout. Optional: when empty (the default),
+      it is read from `vcpkg-config`'s default-registry.baseline.
+    required: false
+    default: ""
+  vcpkg-config:
+    description: "Path to vcpkg-configuration.json used to derive the commit when vcpkg-commit is empty."
+    required: false
+    default: "vcpkg-configuration.json"
   triplet:
     description: "Target triplet (used in cache key for partition isolation)"
     required: true
@@ -19,6 +32,29 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Resolve vcpkg commit
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        commit="${{ inputs.vcpkg-commit }}"
+        if [[ -z "$commit" ]]; then
+          cfg="${{ inputs.vcpkg-config }}"
+          if [[ ! -f "$cfg" ]]; then
+            echo "::error::vcpkg-commit not provided and config file not found: $cfg"
+            exit 1
+          fi
+          commit="$(jq -r '."default-registry".baseline // empty' "$cfg")"
+          echo "Derived vcpkg commit from $cfg: $commit"
+        else
+          echo "Using explicit vcpkg-commit input: $commit"
+        fi
+        if [[ -z "$commit" || "$commit" == "null" ]]; then
+          echo "::error::could not resolve a vcpkg commit (input empty and baseline missing in $cfg)"
+          exit 1
+        fi
+        echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
     - name: Prepare binary cache directory
       shell: bash
       run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
@@ -27,9 +63,9 @@ runs:
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
         restore-keys: |
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ inputs.vcpkg-commit }}-
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
 
     - name: Clone vcpkg
@@ -41,8 +77,8 @@ runs:
           git clone https://github.com/microsoft/vcpkg.git "$VCPKG_DIR" --filter=blob:none --no-checkout
         fi
         cd "$VCPKG_DIR"
-        git fetch origin "${{ inputs.vcpkg-commit }}" --depth=1
-        git checkout "${{ inputs.vcpkg-commit }}"
+        git fetch origin "${{ steps.resolve.outputs.commit }}" --depth=1
+        git checkout "${{ steps.resolve.outputs.commit }}"
 
     - name: Bootstrap vcpkg (Linux/macOS)
       if: runner.os != 'Windows'
