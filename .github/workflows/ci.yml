@@ -83,11 +83,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Write a vcpkg-configuration.json fixture
+      - name: Write a vcpkg-configuration.json fixture in a checkout subdirectory
         shell: bash
         run: |
           set -euo pipefail
-          cat > vcpkg-configuration.json <<'JSON'
+          # Real consumers check their repo out under a `path:` subdir, so the
+          # config is NOT at the workspace root — the action must discover it.
+          mkdir -p consumer-repo
+          cat > consumer-repo/vcpkg-configuration.json <<'JSON'
           {
             "default-registry": {
               "kind": "git",
@@ -97,7 +100,7 @@ jobs:
           }
           JSON
 
-      - name: Setup vcpkg (derive commit from baseline, no vcpkg-commit input)
+      - name: Setup vcpkg (derive commit from baseline in subdir, no vcpkg-commit input)
         uses: ./.github/actions/setup-vcpkg
         with:
           triplet: ${{ matrix.triplet }}

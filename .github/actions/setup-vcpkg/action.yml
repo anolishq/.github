@@ -38,19 +38,27 @@ runs:
       run: |
         set -euo pipefail
         commit="${{ inputs.vcpkg-commit }}"
-        if [[ -z "$commit" ]]; then
+        if [[ -n "$commit" ]]; then
+          echo "Using explicit vcpkg-commit input: $commit"
+        else
           cfg="${{ inputs.vcpkg-config }}"
+          # The caller may check the repo out under a `path:` subdirectory, so the
+          # config is not necessarily at the workspace root. If the configured path
+          # does not exist, discover it under the workspace (mirrors the cache key's
+          # `**/vcpkg-configuration.json` glob). The vcpkg clone does not exist yet at
+          # this point, but exclude its path defensively.
           if [[ ! -f "$cfg" ]]; then
-            echo "::error::vcpkg-commit not provided and config file not found: $cfg"
+            cfg="$(find "${{ github.workspace }}" -maxdepth 4 -name vcpkg-configuration.json -not -path '*/vcpkg/*' 2>/dev/null | sort | head -1)"
+          fi
+          if [[ -z "$cfg" || ! -f "$cfg" ]]; then
+            echo "::error::vcpkg-commit not provided and no vcpkg-configuration.json found under ${{ github.workspace }}"
             exit 1
           fi
           commit="$(jq -r '."default-registry".baseline // empty' "$cfg")"
           echo "Derived vcpkg commit from $cfg: $commit"
-        else
-          echo "Using explicit vcpkg-commit input: $commit"
         fi
         if [[ -z "$commit" || "$commit" == "null" ]]; then
-          echo "::error::could not resolve a vcpkg commit (input empty and baseline missing in $cfg)"
+          echo "::error::could not resolve a vcpkg commit (input empty and baseline missing/invalid)"
           exit 1
         fi
         echo "commit=$commit" >> "$GITHUB_OUTPUT"
