@@ -66,12 +66,60 @@ jobs:
             exit 1
           fi
 
+  test-setup-vcpkg-derived:
+    name: Test setup-vcpkg derived-commit (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            triplet: x64-linux
+          - os: windows-2022
+            triplet: x64-windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Write a vcpkg-configuration.json fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > vcpkg-configuration.json <<'JSON'
+          {
+            "default-registry": {
+              "kind": "git",
+              "repository": "https://github.com/microsoft/vcpkg",
+              "baseline": "66c0373dc7fca549e5803087b9487edfe3aca0a1"
+            }
+          }
+          JSON
+
+      - name: Setup vcpkg (derive commit from baseline, no vcpkg-commit input)
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          triplet: ${{ matrix.triplet }}
+
+      - name: Verify the derived commit matches the baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$VCPKG_ROOT" ]] || { echo "FAIL: VCPKG_ROOT not set"; exit 1; }
+          head="$(git -C "$VCPKG_ROOT" rev-parse HEAD)"
+          echo "vcpkg HEAD=$head"
+          [[ "$head" == "66c0373dc7fca549e5803087b9487edfe3aca0a1" ]] \
+            || { echo "FAIL: derived commit ($head) != baseline"; exit 1; }
+          echo "OK: vcpkg checked out at the baseline derived from vcpkg-configuration.json"
+
   ok:
     name: ok
     if: always()
     needs:
       - docs-check
       - test-setup-vcpkg
+      - test-setup-vcpkg-derived
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
