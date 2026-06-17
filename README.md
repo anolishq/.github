@@ -55,3 +55,22 @@ Shared markdownlint configuration fetched by `docs-check.yml`:
 
 - Line length: 140 (relaxed for technical docs)
 - MD033 disabled (allows inline HTML for VitePress components)
+
+## Branch protection
+
+Every repo's `main` is protected with one canonical classic ruleset: a
+single required status check named `ok` (the final aggregator job each
+repo's `ci.yml` exposes), `strict` up-to-date merges, admins included, no
+force-pushes or deletions, and PRs required (0 approvals).
+
+Org-level rulesets would let us define this once, but they require GitHub
+Team; on the Free plan the equivalent is `scripts/apply-branch-protection.sh`,
+which holds the canonical config and applies it to every `ok`-bearing repo.
+
+```bash
+./scripts/apply-branch-protection.sh --dry-run  # preview
+./scripts/apply-branch-protection.sh            # apply / heal drift
+```
+
+Run it after onboarding a new repo — once that repo's CI exposes an `ok`
+job, add it to the `REPOS` list in the script and re-run.
