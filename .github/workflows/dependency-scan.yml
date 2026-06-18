@@ -64,6 +64,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build g++ pkg-config
 
+      - name: Add swap space
+        # cve-bin-tool's CVE-database build is memory-heavy and was OOM-killing
+        # the standard runner mid-build (job reclaimed). Give the kernel headroom.
+        run: |
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.12"
@@ -177,7 +187,11 @@ jobs:
           else
             NVD_ARGS=(--nvd json-mirror)
           fi
-          common=("${NVD_ARGS[@]}" --no-0-cve-report --format json,html)
+          # Trim the CVE DB to NVD (CPE matching) + RedHat + PURL2CPE. The OSV
+          # source in particular pulls every language ecosystem and bloated the
+          # DB build until the runner was OOM-reclaimed; we match C/C++ by CPE.
+          common=("${NVD_ARGS[@]}" --no-0-cve-report --format json,html
+                  --disable-data-source "OSV,GAD,CURL,EPSS,RSD")
           # 1) Version-based lookup of the resolved direct deps against the FULL
           #    NVD database — covers C++ libs with no binary checker (protobuf,
           #    yaml-cpp, grpc). Runs first so it seeds the cached CVE DB.
