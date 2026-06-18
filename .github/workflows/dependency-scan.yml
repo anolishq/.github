@@ -42,7 +42,7 @@ on:
         type: string
     secrets:
       nvd-api-key:
-        description: "Optional NVD API key (faster CVE DB updates; not required — the default cveb.in mirror needs no key)."
+        description: "NVD API key (free from nvd.nist.gov). Strongly recommended: without it the NVD dataset does not load and CVE coverage is incomplete (the summary flags this)."
         required: false
 
 permissions:
@@ -171,10 +171,6 @@ jobs:
               gh.write(f"count={len(rows)}\n")
           PY
 
-      - name: (DEBUG PROBE) add known-vulnerable openssl row
-        working-directory: ${{ inputs.manifest-dir }}
-        run: echo "openssl,openssl,1.0.1g" >> deps.csv
-
       - name: Run CVE scan (non-blocking)
         id: scan
         working-directory: ${{ inputs.manifest-dir }}
@@ -187,18 +183,23 @@ jobs:
           DEP_COUNT: ${{ steps.deps.outputs.count }}
         run: |
           set +e
-          # Without an NVD API key the keyless NVD API is heavily rate-limited
-          # (the DB download runs for ages); the keyless json-mirror is fast.
-          # With a key, use the authenticated api2 source.
+          # NVD source selection. The full NVD CPE dataset is what makes the
+          # C/C++ version lookup meaningful, and getting it reliably needs an
+          # NVD API key:
+          #   * with a key -> the authenticated api2 source (fast, complete);
+          #   * without a key -> json-mirror (keyless, never rate-limited, but
+          #     in practice loads only the RedHat feed here, so NVD coverage is
+          #     INCOMPLETE — the summary flags this loudly). Keyless api2 is not
+          #     used because NVD rate-limits/4xx's anonymous requests and crashes
+          #     the run.
           if [ -n "${NVD_API_KEY:-}" ]; then
             NVD_ARGS=(--nvd api2 --nvd-api-key "$NVD_API_KEY")
+            HAS_KEY=true
           else
-            # json-mirror pulls NVD from a GCS bucket via gsutil and loads
-            # nothing without GCS auth (silent: DB ends up RedHat-only). The
-            # direct NVD API is keyless — rate-limited/slower but actually
-            # populates the full NVD CPE data we match against.
-            NVD_ARGS=(--nvd api2)
+            NVD_ARGS=(--nvd json-mirror)
+            HAS_KEY=false
           fi
+          echo "has_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
           # Trim the CVE DB to NVD (CPE matching) + RedHat + PURL2CPE. The OSV
           # source in particular pulls every language ecosystem and bloated the
           # DB build until the runner was OOM-reclaimed; we match C/C++ by CPE.
@@ -228,9 +229,12 @@ jobs:
       - name: Build job summary
         if: always()
         working-directory: ${{ inputs.manifest-dir }}
+        env:
+          HAS_KEY: ${{ steps.scan.outputs.has_key }}
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, os
+          has_key = os.environ.get("HAS_KEY", "") == "true"
           def load(path):
               if not os.path.exists(path):
                   return None
@@ -250,6 +254,16 @@ jobs:
                   out.append(f"\n…and {len(rows) - 100} more — see the report artifact.")
               return "\n".join(out)
           print("## vcpkg dependency CVE scan\n")
+          if not has_key:
+              # No key -> NVD did not load, so an empty result is NOT a clean
+              # bill of health. Make that unmistakable.
+              print("> [!WARNING]\n"
+                    "> **`NVD_API_KEY` is not configured, so the NVD dataset did "
+                    "not load — CVE coverage is INCOMPLETE.**\n"
+                    "> An empty result below does **not** mean the dependencies "
+                    "are free of known CVEs. Add a (free) NVD API key as the "
+                    "`NVD_API_KEY` secret to enable full coverage. "
+                    "See the dependency-scanning docs in `anolishq/.github`.\n")
           for title, path in [
               ("Direct dependencies (resolved version → NVD)", "cve-deps.json"),
               ("Binary scan (linked / transitive libraries)", "cve-binary.json"),
@@ -260,7 +274,8 @@ jobs:
                   print("_No report produced (scan skipped or errored — see step log)._\n")
                   continue
               if not rows:
-                  print("✅ No known CVEs detected.\n")
+                  print(("✅ No known CVEs detected.\n" if has_key
+                         else "_No CVEs reported — but NVD did not load (see warning above)._\n"))
                   continue
               by_sev = {}
               for r in rows:
