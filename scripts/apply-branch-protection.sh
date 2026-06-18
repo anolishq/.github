@@ -46,6 +46,7 @@ REPOS=(
   anolis-telemetry-export
   anolis-workbench
   anolishq.github.io
+  baseliner-control
   fluxgraph
   renovate-config
 )
