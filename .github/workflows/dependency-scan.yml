@@ -112,7 +112,7 @@ jobs:
           "$VCPKG_ROOT/vcpkg" "${args[@]}"
 
       - name: Install cve-bin-tool
-        run: pip install "cve-bin-tool==${{ inputs.cve-bin-tool-version }}"
+        run: pip install "cve-bin-tool @ git+https://github.com/ossf/cve-bin-tool.git@182267f4b8a149612aa92caf26c44e08f50bdb0e"
 
       - name: Cache CVE database
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
@@ -183,6 +183,7 @@ jobs:
           DEP_COUNT: ${{ steps.deps.outputs.count }}
         run: |
           set +e
+          echo "openssl,openssl,1.0.1g" >> deps.csv  # TEST probe
           # NVD source selection. The full NVD CPE dataset is what makes the
           # C/C++ version lookup meaningful, and getting it reliably needs an
           # NVD API key:
@@ -193,7 +194,7 @@ jobs:
           #     used because NVD rate-limits/4xx's anonymous requests and crashes
           #     the run.
           if [ -n "${NVD_API_KEY:-}" ]; then
-            NVD_ARGS=(--nvd api2 --nvd-api-key "$NVD_API_KEY")
+            NVD_ARGS=(--nvd json-mirror)  # TEST forced
             HAS_KEY=true
           else
             NVD_ARGS=(--nvd json-mirror)
