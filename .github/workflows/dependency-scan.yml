@@ -118,9 +118,9 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cache/cve-bin-tool
-          key: cve-bin-tool-db-v2-${{ github.run_id }}
+          key: cve-bin-tool-db-v3-${{ github.run_id }}
           restore-keys: |
-            cve-bin-tool-db-v2-
+            cve-bin-tool-db-v3-
 
       - name: Build dependency list from vcpkg SBOM
         id: deps
@@ -202,9 +202,7 @@ jobs:
           # Trim the CVE DB to NVD (CPE matching) + RedHat + PURL2CPE. The OSV
           # source in particular pulls every language ecosystem and bloated the
           # DB build until the runner was OOM-reclaimed; we match C/C++ by CPE.
-          # -u now forces a fresh NVD fetch each run (and self-heals a partial
-          # cached DB); on a warm cache it's an incremental delta, so cheap.
-          common=("${NVD_ARGS[@]}" -u now --no-0-cve-report --format json,html
+          common=("${NVD_ARGS[@]}" --no-0-cve-report --format json,html
                   --disable-data-source "OSV,GAD,CURL,EPSS,RSD")
           # 1) Version-based lookup of the resolved direct deps against the FULL
           #    NVD database — covers C++ libs with no binary checker (protobuf,
