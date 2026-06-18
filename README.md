@@ -77,7 +77,7 @@ jobs:
       triplet: x64-linux-static   # x64-linux for repos using the built-in triplet
       # features: "tests;json;yaml;server"   # only if deps are feature-gated
     secrets:
-      nvd-api-key: ${{ secrets.NVD_API_KEY }}
+      nvd_api_key: ${{ secrets.NVD_API_KEY }}
 ```
 
 ### Required: `NVD_API_KEY`

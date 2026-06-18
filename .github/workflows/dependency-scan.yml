@@ -41,7 +41,7 @@ on:
         default: "3.4"
         type: string
     secrets:
-      nvd-api-key:
+      nvd_api_key:
         description: "NVD API key (free from nvd.nist.gov). Strongly recommended: without it the NVD dataset does not load and CVE coverage is incomplete (the summary flags this)."
         required: false
 
@@ -179,7 +179,7 @@ jobs:
         # having the whole job reclaimed.
         timeout-minutes: 45
         env:
-          NVD_API_KEY: ${{ secrets.nvd-api-key }}
+          NVD_API_KEY: ${{ secrets.nvd_api_key }}
           DEP_COUNT: ${{ steps.deps.outputs.count }}
         run: |
           set +e
