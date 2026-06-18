@@ -16,9 +16,19 @@ on:
   workflow_call:
     inputs:
       triplet:
-        description: "vcpkg triplet to install and scan. Defaults to the repos' CI triplet so the warm binary cache is reused."
+        description: "vcpkg triplet to install and scan. Matches the repos' CI triplet so the warm binary cache is reused."
         required: false
         default: "x64-linux-static"
+        type: string
+      overlay-triplets:
+        description: "Directory of overlay triplet definitions (relative to manifest-dir). Most repos define the custom x64-linux-static triplet under triplets/. Passed to vcpkg only when the directory exists."
+        required: false
+        default: "triplets"
+        type: string
+      features:
+        description: "Semicolon-separated manifest features to enable (e.g. 'server;json;yaml;tests'). Needed when deps are feature-gated (fluxgraph); leave empty for repos with top-level dependencies."
+        required: false
+        default: ""
         type: string
       manifest-dir:
         description: "Directory containing vcpkg.json (relative to the repo root)."
@@ -65,11 +75,27 @@ jobs:
 
       - name: Install vcpkg dependencies
         working-directory: ${{ inputs.manifest-dir }}
+        env:
+          TRIPLET: ${{ inputs.triplet }}
+          OVERLAY_DIR: ${{ inputs.overlay-triplets }}
+          FEATURES: ${{ inputs.features }}
         run: |
           set -euo pipefail
-          "$VCPKG_ROOT/vcpkg" install \
-            --triplet "${{ inputs.triplet }}" \
-            --x-install-root="$PWD/vcpkg_installed"
+          args=(install --triplet "$TRIPLET" --x-install-root="$PWD/vcpkg_installed")
+          # The custom x64-linux-static triplet is an overlay, not a built-in;
+          # point vcpkg at it when present (matches CI, so the cache is reused).
+          if [ -n "$OVERLAY_DIR" ] && [ -d "$OVERLAY_DIR" ]; then
+            args+=(--overlay-triplets="$PWD/$OVERLAY_DIR")
+          fi
+          # Enable feature-gated dependencies (e.g. fluxgraph's deps live under features).
+          if [ -n "$FEATURES" ]; then
+            IFS=';' read -ra feats <<< "$FEATURES"
+            for f in "${feats[@]}"; do
+              [ -n "$f" ] && args+=(--x-feature="$f")
+            done
+          fi
+          echo "vcpkg ${args[*]}"
+          "$VCPKG_ROOT/vcpkg" "${args[@]}"
 
       - name: Install cve-bin-tool
         run: pip install "cve-bin-tool==${{ inputs.cve-bin-tool-version }}"
