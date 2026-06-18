@@ -35,15 +35,11 @@ on:
         required: false
         default: "."
         type: string
-      cve-bin-tool-version:
-        description: "Pinned cve-bin-tool PyPI version."
+      cve-bin-tool-ref:
+        description: "Git ref/SHA of ossf/cve-bin-tool to install. Pinned to a main commit because the keyless NVD 2.0 mirror feed is not in any release yet (3.4 uses the retired, empty 1.1 feed)."
         required: false
-        default: "3.4"
+        default: "182267f4b8a149612aa92caf26c44e08f50bdb0e"
         type: string
-    secrets:
-      nvd_api_key:
-        description: "NVD API key (free from nvd.nist.gov). Strongly recommended: without it the NVD dataset does not load and CVE coverage is incomplete (the summary flags this)."
-        required: false
 
 permissions:
   contents: read
@@ -112,7 +108,7 @@ jobs:
           "$VCPKG_ROOT/vcpkg" "${args[@]}"
 
       - name: Install cve-bin-tool
-        run: pip install "cve-bin-tool @ git+https://github.com/ossf/cve-bin-tool.git@182267f4b8a149612aa92caf26c44e08f50bdb0e"
+        run: pip install "cve-bin-tool @ git+https://github.com/ossf/cve-bin-tool.git@${{ inputs.cve-bin-tool-ref }}"
 
       - name: Cache CVE database
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
@@ -179,51 +175,41 @@ jobs:
         # having the whole job reclaimed.
         timeout-minutes: 45
         env:
-          NVD_API_KEY: ${{ secrets.nvd_api_key }}
           DEP_COUNT: ${{ steps.deps.outputs.count }}
         run: |
           set +e
-          echo "openssl,openssl,1.0.1g" >> deps.csv  # TEST probe
-          # NVD source selection. The full NVD CPE dataset is what makes the
-          # C/C++ version lookup meaningful, and getting it reliably needs an
-          # NVD API key:
-          #   * with a key -> the authenticated api2 source (fast, complete);
-          #   * without a key -> json-mirror (keyless, never rate-limited, but
-          #     in practice loads only the RedHat feed here, so NVD coverage is
-          #     INCOMPLETE — the summary flags this loudly). Keyless api2 is not
-          #     used because NVD rate-limits/4xx's anonymous requests and crashes
-          #     the run.
-          if [ -n "${NVD_API_KEY:-}" ]; then
-            NVD_ARGS=(--nvd json-mirror)  # TEST forced
-            HAS_KEY=true
-          else
-            NVD_ARGS=(--nvd json-mirror)
-            HAS_KEY=false
-          fi
-          echo "has_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
-          # Trim the CVE DB to NVD (CPE matching) + RedHat + PURL2CPE. The OSV
-          # source in particular pulls every language ecosystem and bloated the
-          # DB build until the runner was OOM-reclaimed; we match C/C++ by CPE.
-          common=("${NVD_ARGS[@]}" --no-0-cve-report --format json,html
+          # Keyless NVD via the cveb.in mirror (FCIX-backed: no API key, no rate
+          # limit, refreshed several times daily). NVD's own API returns 503 to
+          # GitHub-hosted runner IPs even with a key, so the mirror is the only
+          # reliable source from CI. The pinned cve-bin-tool reads the live NVD
+          # 2.0 feed (release 3.4 used the retired/empty 1.1 feed → no NVD data).
+          # OSV/GAD/CURL/EPSS/RSD are disabled: OSV in particular pulls every
+          # language ecosystem and OOM-reclaimed the runner; we match C/C++ by CPE.
+          common=(--nvd json-mirror --no-0-cve-report --format json,html
                   --disable-data-source "OSV,GAD,CURL,EPSS,RSD")
-          # 1) Version-based lookup of the resolved direct deps against the FULL
-          #    NVD database — covers C++ libs with no binary checker (protobuf,
-          #    yaml-cpp, grpc). Runs first so it seeds the cached CVE DB.
+          # 1) Version lookup of the resolved direct deps against the FULL NVD DB
+          #    — covers C++ libs with no binary checker (protobuf, yaml-cpp, grpc).
+          #    Runs first so it populates the cached CVE DB.
           deps_rc=0
           if [ "${DEP_COUNT:-0}" -gt 0 ]; then
-            cve-bin-tool "${common[@]}" --output-file cve-deps --input-file deps.csv
-            deps_rc=$?
+            cve-bin-tool "${common[@]}" --output-file cve-deps --input-file deps.csv 2>&1 | tee cbt.out
+            deps_rc=${PIPESTATUS[0]}
           else
-            echo "No mapped dependencies; skipping version-based lookup."
+            echo "No mapped dependencies; skipping version-based lookup." | tee cbt.out
           fi
-          # 2) Binary fingerprint scan of the installed tree (DB now cached →
-          #    cheap); catches linked/transitive libs via cve-bin-tool checkers.
-          cve-bin-tool "${common[@]}" --output-file cve-binary "vcpkg_installed/${{ inputs.triplet }}"
-          bin_rc=$?
-          echo "version-lookup exit=$deps_rc  binary-scan exit=$bin_rc (non-blocking; >0 means CVEs found)"
+          # 2) Binary scan of the installed tree (DB cached → cheap); catches
+          #    linked/transitive libs via cve-bin-tool checkers.
+          cve-bin-tool "${common[@]}" --output-file cve-binary "vcpkg_installed/${{ inputs.triplet }}" 2>&1 | tee -a cbt.out
+          bin_rc=${PIPESTATUS[0]}
+          # Safety guard: capture how many CVEs the DB loaded. If implausibly low
+          # (mirror outage), an empty result must NOT read as a clean bill.
+          db_count=$(grep -oE 'There are [0-9]+ CVE' cbt.out | grep -oE '[0-9]+' | sort -rn | head -1)
+          db_count=${db_count:-0}
+          echo "version-lookup exit=$deps_rc  binary-scan exit=$bin_rc  db_cve_count=$db_count"
           {
             echo "deps_rc=$deps_rc"
             echo "bin_rc=$bin_rc"
+            echo "db_count=$db_count"
           } >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -231,11 +217,15 @@ jobs:
         if: always()
         working-directory: ${{ inputs.manifest-dir }}
         env:
-          HAS_KEY: ${{ steps.scan.outputs.has_key }}
+          DB_COUNT: ${{ steps.scan.outputs.db_count }}
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, os
-          has_key = os.environ.get("HAS_KEY", "") == "true"
+          # The DB normally holds ~300k+ CVEs once the NVD mirror loads. A low
+          # count means the mirror didn't populate, so an empty result is not a
+          # clean bill of health.
+          db_count = int(os.environ.get("DB_COUNT") or 0)
+          nvd_ok = db_count >= 100000
           def load(path):
               if not os.path.exists(path):
                   return None
@@ -255,16 +245,17 @@ jobs:
                   out.append(f"\n…and {len(rows) - 100} more — see the report artifact.")
               return "\n".join(out)
           print("## vcpkg dependency CVE scan\n")
-          if not has_key:
-              # No key -> NVD did not load, so an empty result is NOT a clean
-              # bill of health. Make that unmistakable.
+          if not nvd_ok:
+              # NVD mirror didn't populate -> an empty result is NOT a clean bill.
               print("> [!WARNING]\n"
-                    "> **`NVD_API_KEY` is not configured, so the NVD dataset did "
-                    "not load — CVE coverage is INCOMPLETE.**\n"
+                    f"> **The NVD dataset did not load (DB held only {db_count} "
+                    "CVEs) — CVE coverage is INCOMPLETE.**\n"
                     "> An empty result below does **not** mean the dependencies "
-                    "are free of known CVEs. Add a (free) NVD API key as the "
-                    "`NVD_API_KEY` secret to enable full coverage. "
-                    "See the dependency-scanning docs in `anolishq/.github`.\n")
+                    "are free of known CVEs; the NVD mirror likely failed. "
+                    "Re-run, or see the dependency-scanning docs in "
+                    "`anolishq/.github`.\n")
+          else:
+              print(f"_NVD database loaded: {db_count:,} CVEs._\n")
           for title, path in [
               ("Direct dependencies (resolved version → NVD)", "cve-deps.json"),
               ("Binary scan (linked / transitive libraries)", "cve-binary.json"),
@@ -275,7 +266,7 @@ jobs:
                   print("_No report produced (scan skipped or errored — see step log)._\n")
                   continue
               if not rows:
-                  print(("✅ No known CVEs detected.\n" if has_key
+                  print(("✅ No known CVEs detected.\n" if nvd_ok
                          else "_No CVEs reported — but NVD did not load (see warning above)._\n"))
                   continue
               by_sev = {}
