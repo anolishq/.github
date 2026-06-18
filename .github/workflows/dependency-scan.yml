@@ -64,14 +64,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build g++ pkg-config
 
-      - name: Add swap space
+      - name: Maximize swap space
         # cve-bin-tool's CVE-database build is memory-heavy and was OOM-killing
-        # the standard runner mid-build (job reclaimed). Give the kernel headroom.
+        # the standard runner mid-build (job reclaimed). Give the kernel headroom
+        # via a large swapfile on the roomy /mnt disk. Best-effort: never blocks.
+        continue-on-error: true
         run: |
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo swapoff -a || true
+          sudo rm -f /swapfile /mnt/swapfile || true
+          sudo fallocate -l 10G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
           free -h
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
