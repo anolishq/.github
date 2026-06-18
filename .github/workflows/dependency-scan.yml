@@ -111,16 +111,24 @@ jobs:
       - name: Run CVE scan (non-blocking)
         id: scan
         working-directory: ${{ inputs.manifest-dir }}
+        # Step-level cap so a stalled DB fetch fails this step cleanly (and lets
+        # the summary / artifact / DB-cache-save steps still run) rather than
+        # having the whole job reclaimed.
+        timeout-minutes: 45
         env:
           NVD_API_KEY: ${{ secrets.nvd-api-key }}
         run: |
           set +e
-          KEY_ARG=()
+          # Without an NVD API key the keyless NVD API is heavily rate-limited
+          # (the DB download can run for ages); the keyless json-mirror is fast.
+          # With a key, use the authenticated api2 source.
           if [ -n "${NVD_API_KEY:-}" ]; then
-            KEY_ARG=(--nvd-api-key "$NVD_API_KEY")
+            NVD_ARGS=(--nvd api2 --nvd-api-key "$NVD_API_KEY")
+          else
+            NVD_ARGS=(--nvd json-mirror)
           fi
           cve-bin-tool \
-            "${KEY_ARG[@]}" \
+            "${NVD_ARGS[@]}" \
             --format json,html \
             --output-file cve-report \
             --no-0-cve-report \
