@@ -1,0 +1,153 @@
+name: Dependency Scan
+
+# Reusable CVE scan for the org's vcpkg-based C/C++ repositories.
+#
+# vcpkg pins dependency versions via the registry baseline (not in vcpkg.json),
+# and its generated SPDX SBOMs carry no CPE/purl identifiers, so generic SBOM
+# scanners (OSV-Scanner/Trivy/Grype) cannot match CVEs against them. Instead we
+# install the resolved dependency set and scan the *compiled* libraries with
+# cve-bin-tool, which fingerprints binaries and maps components to known CVEs.
+#
+# Non-blocking by design: the scan never fails the workflow. Findings surface as
+# a job summary plus an uploaded HTML/JSON report artifact. Intended to be
+# called on a schedule (and manual dispatch), not as a PR gate.
+
+on:
+  workflow_call:
+    inputs:
+      triplet:
+        description: "vcpkg triplet to install and scan. Defaults to the repos' CI triplet so the warm binary cache is reused."
+        required: false
+        default: "x64-linux-static"
+        type: string
+      manifest-dir:
+        description: "Directory containing vcpkg.json (relative to the repo root)."
+        required: false
+        default: "."
+        type: string
+      cve-bin-tool-version:
+        description: "Pinned cve-bin-tool PyPI version."
+        required: false
+        default: "3.4"
+        type: string
+    secrets:
+      nvd-api-key:
+        description: "Optional NVD API key (faster CVE DB updates; not required — the default cveb.in mirror needs no key)."
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: vcpkg CVE scan
+    runs-on: ubuntu-24.04
+    # Cold cache builds the dependency set from source (grpc/protobuf/openssl);
+    # warm cache (shared with CI's triplet) is fast.
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++ pkg-config
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup vcpkg
+        uses: anolishq/.github/.github/actions/setup-vcpkg@ae26d7bf4caa08e33155665110d3feebf1387425 # main
+        with:
+          triplet: ${{ inputs.triplet }}
+
+      - name: Install vcpkg dependencies
+        working-directory: ${{ inputs.manifest-dir }}
+        run: |
+          set -euo pipefail
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet "${{ inputs.triplet }}" \
+            --x-install-root="$PWD/vcpkg_installed"
+
+      - name: Install cve-bin-tool
+        run: pip install "cve-bin-tool==${{ inputs.cve-bin-tool-version }}"
+
+      - name: Cache CVE database
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.cache/cve-bin-tool
+          key: cve-bin-tool-db-${{ github.run_id }}
+          restore-keys: |
+            cve-bin-tool-db-
+
+      - name: Run CVE scan (non-blocking)
+        id: scan
+        working-directory: ${{ inputs.manifest-dir }}
+        env:
+          NVD_API_KEY: ${{ secrets.nvd-api-key }}
+        run: |
+          set +e
+          KEY_ARG=()
+          if [ -n "${NVD_API_KEY:-}" ]; then
+            KEY_ARG=(--nvd-api-key "$NVD_API_KEY")
+          fi
+          cve-bin-tool \
+            "${KEY_ARG[@]}" \
+            --format json,html \
+            --output-file cve-report \
+            --no-0-cve-report \
+            "vcpkg_installed/${{ inputs.triplet }}"
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "cve-bin-tool exit code: $rc (non-blocking; >0 means CVEs were found)"
+          exit 0
+
+      - name: Build job summary
+        if: always()
+        working-directory: ${{ inputs.manifest-dir }}
+        run: |
+          python3 - "${{ steps.scan.outputs.rc }}" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os, sys
+          rc = sys.argv[1] if len(sys.argv) > 1 else "?"
+          print("## vcpkg dependency CVE scan\n")
+          path = "cve-report.json"
+          if not os.path.exists(path):
+              print(f"cve-bin-tool exit code `{rc}` — no JSON report produced "
+                    "(no findings, or the scan errored; see the step log).")
+              raise SystemExit(0)
+          with open(path) as f:
+              try:
+                  data = json.load(f)
+              except json.JSONDecodeError:
+                  print("Report JSON was empty — no CVEs detected.")
+                  raise SystemExit(0)
+          rows = data if isinstance(data, list) else data.get("report", [])
+          if not rows:
+              print("✅ No known CVEs detected in the resolved dependency set.")
+              raise SystemExit(0)
+          by_sev = {}
+          for r in rows:
+              by_sev[r.get("severity", "UNKNOWN")] = by_sev.get(r.get("severity", "UNKNOWN"), 0) + 1
+          print(f"⚠️ **{len(rows)} CVE finding(s)** across the dependency set "
+                + ", ".join(f"{k}: {v}" for k, v in sorted(by_sev.items())) + ".\n")
+          print("| Product | Version | CVE | Severity | Score |")
+          print("| --- | --- | --- | --- | --- |")
+          for r in rows[:100]:
+              print(f"| {r.get('product','')} | {r.get('version','')} | "
+                    f"{r.get('cve_number','')} | {r.get('severity','')} | "
+                    f"{r.get('score','')} |")
+          if len(rows) > 100:
+              print(f"\n…and {len(rows) - 100} more — see the uploaded report artifact.")
+          PY
+
+      - name: Upload CVE report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cve-report-${{ inputs.triplet }}
+          path: |
+            ${{ inputs.manifest-dir }}/cve-report.json
+            ${{ inputs.manifest-dir }}/cve-report.html
+          if-no-files-found: warn
