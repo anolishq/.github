@@ -95,6 +95,13 @@ jobs:
             "pnpm": { "onlyBuiltDependencies": ["esbuild"] }
           }
           EOF
+          # pnpm 10.6+/11 reads onlyBuiltDependencies from pnpm-workspace.yaml,
+          # not package.json's "pnpm" field — without this, pnpm skips esbuild's
+          # build script and the vitepress build fails (ERR_PNPM_IGNORED_BUILDS).
+          cat > pnpm-workspace.yaml << 'EOF'
+          onlyBuiltDependencies:
+            - esbuild
+          EOF
           cat > docs/.vitepress/config.mts << 'EOF'
           import { defineConfig } from 'vitepress'
           export default defineConfig({
