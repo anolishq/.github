@@ -76,20 +76,21 @@ jobs:
     with:
       triplet: x64-linux-static   # x64-linux for repos using the built-in triplet
       # features: "tests;json;yaml;server"   # only if deps are feature-gated
-    secrets:
-      nvd_api_key: ${{ secrets.NVD_API_KEY }}
 ```
 
-### Required: `NVD_API_KEY`
+No secrets or API keys are required.
+
+### NVD data source (keyless)
 
 The scan matches dependency versions against the **National Vulnerability
-Database**. Without a key the NVD dataset does not load (cve-bin-tool's keyless
-sources are rate-limited or incomplete), so **coverage is incomplete and the
-job summary says so** — an empty result is *not* a clean bill of health.
-
-Request a free key at <https://nvd.nist.gov/developers/request-an-api-key> and
-add it as an **organization secret** named `NVD_API_KEY` (visible to all repos).
-Once set, every repo's scan automatically uses it — no per-repo change needed.
+Database**, pulled from the keyless **cveb.in mirror** (FCIX-backed: no API key,
+no rate limit, refreshed several times daily). NVD's own API returns `503` to
+GitHub-hosted runner IPs even with a key, so the mirror is the reliable source
+from CI. `cve-bin-tool` is pinned to a `main` commit because the fix to read the
+live NVD **2.0** feed (the released 3.4 uses the retired, empty 1.1 feed) is not
+in any release yet. The job summary reports the loaded CVE count and **flags
+INCOMPLETE if the mirror ever fails to populate** — so an empty result is never
+mistaken for a clean bill of health.
 
 ### How it works
 
