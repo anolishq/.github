@@ -171,6 +171,10 @@ jobs:
               gh.write(f"count={len(rows)}\n")
           PY
 
+      - name: (DEBUG PROBE) add known-vulnerable openssl row
+        working-directory: ${{ inputs.manifest-dir }}
+        run: echo "openssl,openssl,1.0.1g" >> deps.csv
+
       - name: Run CVE scan (non-blocking)
         id: scan
         working-directory: ${{ inputs.manifest-dir }}
