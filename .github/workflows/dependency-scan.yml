@@ -193,7 +193,11 @@ jobs:
           if [ -n "${NVD_API_KEY:-}" ]; then
             NVD_ARGS=(--nvd api2 --nvd-api-key "$NVD_API_KEY")
           else
-            NVD_ARGS=(--nvd json-mirror)
+            # json-mirror pulls NVD from a GCS bucket via gsutil and loads
+            # nothing without GCS auth (silent: DB ends up RedHat-only). The
+            # direct NVD API is keyless — rate-limited/slower but actually
+            # populates the full NVD CPE data we match against.
+            NVD_ARGS=(--nvd api2)
           fi
           # Trim the CVE DB to NVD (CPE matching) + RedHat + PURL2CPE. The OSV
           # source in particular pulls every language ecosystem and bloated the
