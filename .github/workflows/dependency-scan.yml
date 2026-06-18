@@ -108,64 +108,141 @@ jobs:
           restore-keys: |
             cve-bin-tool-db-
 
+      - name: Build dependency list from vcpkg SBOM
+        id: deps
+        working-directory: ${{ inputs.manifest-dir }}
+        run: |
+          python3 - "${{ inputs.triplet }}" <<'PY'
+          import csv, glob, json, os, sys
+          triplet = sys.argv[1]
+          # vcpkg SPDX SBOMs carry no CPE/purl, so this small curated map bridges
+          # vcpkg port names to NVD (vendor, product). cve-bin-tool's --input-file
+          # then matches the resolved versions against the FULL NVD database (not
+          # just products with a binary checker). Add an entry when a new
+          # dependency is introduced; names verified against NVD's CPE dictionary.
+          PORT_CPE = {
+              "openssl":       ("openssl", "openssl"),
+              "protobuf":      ("google", "protobuf"),
+              "grpc":          ("grpc", "grpc"),
+              "yaml-cpp":      ("yaml-cpp_project", "yaml-cpp"),
+              "cpp-httplib":   ("cpp-httplib_project", "cpp-httplib"),
+              "nlohmann-json": ("nlohmann", "json"),
+          }
+          rows, seen = [], set()
+          for spdx in sorted(glob.glob(f"vcpkg_installed/{triplet}/share/*/vcpkg.spdx.json")):
+              try:
+                  data = json.load(open(spdx))
+              except Exception:
+                  continue
+              port = next((p for p in data.get("packages", [])
+                           if p.get("SPDXID") == "SPDXRef-port"), None)
+              if not port or port.get("name") not in PORT_CPE:
+                  continue
+              ver = (port.get("versionInfo") or "").split("#")[0].strip()
+              if not ver or ver == "NOASSERTION":
+                  continue
+              vendor, product = PORT_CPE[port["name"]]
+              if (vendor, product, ver) in seen:
+                  continue
+              seen.add((vendor, product, ver))
+              rows.append((vendor, product, ver))
+          with open("deps.csv", "w", newline="") as f:
+              w = csv.writer(f)
+              w.writerow(["vendor", "product", "version"])
+              w.writerows(rows)
+          print(f"Mapped {len(rows)} dependency(ies) to NVD products:")
+          for r in rows:
+              print("  ", ",".join(r))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as gh:
+              gh.write(f"count={len(rows)}\n")
+          PY
+
       - name: Run CVE scan (non-blocking)
         id: scan
         working-directory: ${{ inputs.manifest-dir }}
+        # Step-level cap so a stalled DB fetch fails this step cleanly (and lets
+        # the summary / artifact / DB-cache-save steps still run) rather than
+        # having the whole job reclaimed.
+        timeout-minutes: 45
         env:
           NVD_API_KEY: ${{ secrets.nvd-api-key }}
+          DEP_COUNT: ${{ steps.deps.outputs.count }}
         run: |
           set +e
-          KEY_ARG=()
+          # Without an NVD API key the keyless NVD API is heavily rate-limited
+          # (the DB download runs for ages); the keyless json-mirror is fast.
+          # With a key, use the authenticated api2 source.
           if [ -n "${NVD_API_KEY:-}" ]; then
-            KEY_ARG=(--nvd-api-key "$NVD_API_KEY")
+            NVD_ARGS=(--nvd api2 --nvd-api-key "$NVD_API_KEY")
+          else
+            NVD_ARGS=(--nvd json-mirror)
           fi
-          cve-bin-tool \
-            "${KEY_ARG[@]}" \
-            --format json,html \
-            --output-file cve-report \
-            --no-0-cve-report \
-            "vcpkg_installed/${{ inputs.triplet }}"
-          rc=$?
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          echo "cve-bin-tool exit code: $rc (non-blocking; >0 means CVEs were found)"
+          common=("${NVD_ARGS[@]}" --no-0-cve-report --format json,html)
+          # 1) Version-based lookup of the resolved direct deps against the FULL
+          #    NVD database — covers C++ libs with no binary checker (protobuf,
+          #    yaml-cpp, grpc). Runs first so it seeds the cached CVE DB.
+          deps_rc=0
+          if [ "${DEP_COUNT:-0}" -gt 0 ]; then
+            cve-bin-tool "${common[@]}" --output-file cve-deps --input-file deps.csv
+            deps_rc=$?
+          else
+            echo "No mapped dependencies; skipping version-based lookup."
+          fi
+          # 2) Binary fingerprint scan of the installed tree (DB now cached →
+          #    cheap); catches linked/transitive libs via cve-bin-tool checkers.
+          cve-bin-tool "${common[@]}" --output-file cve-binary "vcpkg_installed/${{ inputs.triplet }}"
+          bin_rc=$?
+          echo "version-lookup exit=$deps_rc  binary-scan exit=$bin_rc (non-blocking; >0 means CVEs found)"
+          {
+            echo "deps_rc=$deps_rc"
+            echo "bin_rc=$bin_rc"
+          } >> "$GITHUB_OUTPUT"
           exit 0
 
       - name: Build job summary
         if: always()
         working-directory: ${{ inputs.manifest-dir }}
         run: |
-          python3 - "${{ steps.scan.outputs.rc }}" <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import json, os, sys
-          rc = sys.argv[1] if len(sys.argv) > 1 else "?"
-          print("## vcpkg dependency CVE scan\n")
-          path = "cve-report.json"
-          if not os.path.exists(path):
-              print(f"cve-bin-tool exit code `{rc}` — no JSON report produced "
-                    "(no findings, or the scan errored; see the step log).")
-              raise SystemExit(0)
-          with open(path) as f:
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          def load(path):
+              if not os.path.exists(path):
+                  return None
               try:
-                  data = json.load(f)
-              except json.JSONDecodeError:
-                  print("Report JSON was empty — no CVEs detected.")
-                  raise SystemExit(0)
-          rows = data if isinstance(data, list) else data.get("report", [])
-          if not rows:
-              print("✅ No known CVEs detected in the resolved dependency set.")
-              raise SystemExit(0)
-          by_sev = {}
-          for r in rows:
-              by_sev[r.get("severity", "UNKNOWN")] = by_sev.get(r.get("severity", "UNKNOWN"), 0) + 1
-          print(f"⚠️ **{len(rows)} CVE finding(s)** across the dependency set "
-                + ", ".join(f"{k}: {v}" for k, v in sorted(by_sev.items())) + ".\n")
-          print("| Product | Version | CVE | Severity | Score |")
-          print("| --- | --- | --- | --- | --- |")
-          for r in rows[:100]:
-              print(f"| {r.get('product','')} | {r.get('version','')} | "
-                    f"{r.get('cve_number','')} | {r.get('severity','')} | "
-                    f"{r.get('score','')} |")
-          if len(rows) > 100:
-              print(f"\n…and {len(rows) - 100} more — see the uploaded report artifact.")
+                  d = json.load(open(path))
+              except Exception:
+                  return []
+              return d if isinstance(d, list) else d.get("report", [])
+          def table(rows):
+              out = ["| Product | Version | CVE | Severity | Score |",
+                     "| --- | --- | --- | --- | --- |"]
+              for r in rows[:100]:
+                  out.append(f"| {r.get('product','')} | {r.get('version','')} | "
+                             f"{r.get('cve_number','')} | {r.get('severity','')} | "
+                             f"{r.get('score','')} |")
+              if len(rows) > 100:
+                  out.append(f"\n…and {len(rows) - 100} more — see the report artifact.")
+              return "\n".join(out)
+          print("## vcpkg dependency CVE scan\n")
+          for title, path in [
+              ("Direct dependencies (resolved version → NVD)", "cve-deps.json"),
+              ("Binary scan (linked / transitive libraries)", "cve-binary.json"),
+          ]:
+              print(f"### {title}\n")
+              rows = load(path)
+              if rows is None:
+                  print("_No report produced (scan skipped or errored — see step log)._\n")
+                  continue
+              if not rows:
+                  print("✅ No known CVEs detected.\n")
+                  continue
+              by_sev = {}
+              for r in rows:
+                  s = r.get("severity", "UNKNOWN")
+                  by_sev[s] = by_sev.get(s, 0) + 1
+              print(f"⚠️ **{len(rows)} finding(s)** — "
+                    + ", ".join(f"{k}: {v}" for k, v in sorted(by_sev.items())) + "\n")
+              print(table(rows) + "\n")
           PY
 
       - name: Upload CVE report
@@ -174,6 +251,9 @@ jobs:
         with:
           name: cve-report-${{ inputs.triplet }}
           path: |
-            ${{ inputs.manifest-dir }}/cve-report.json
-            ${{ inputs.manifest-dir }}/cve-report.html
+            ${{ inputs.manifest-dir }}/cve-deps.json
+            ${{ inputs.manifest-dir }}/cve-deps.html
+            ${{ inputs.manifest-dir }}/cve-binary.json
+            ${{ inputs.manifest-dir }}/cve-binary.html
+            ${{ inputs.manifest-dir }}/deps.csv
           if-no-files-found: warn
