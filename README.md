@@ -2,6 +2,24 @@
 
 Org-level shared workflows and configuration for all anolishq repositories.
 
+## Versioning
+
+Consumers pin these shared workflows/actions to a commit SHA tagged **`v2`**:
+
+```yaml
+uses: anolishq/.github/.github/actions/setup-vcpkg@<sha> # v2
+```
+
+The `# v2` comment tells Renovate to track the **`v2` tag** — so a pin only
+moves when `v2` is deliberately re-tagged (a release), **not** on every push to
+`main`. Do **not** pin internal refs to `@<sha> # main`: that makes Renovate
+re-pin on every `.github` commit, which churns PRs across the org.
+
+**Cutting a release:** for a backward-compatible change, move the `v2` tag to
+the new `main` SHA (`git tag -f v2 <sha> && git push -f origin v2`); for a
+breaking change, cut `v3` and migrate consumers. Renovate then bumps the
+SHA-pins to the new tag SHA (held 3 days by the supply-chain soak).
+
 ## Reusable Workflows
 
 ### docs-check.yml
