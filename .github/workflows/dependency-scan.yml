@@ -79,7 +79,7 @@ jobs:
           python-version: "3.12"
 
       - name: Setup vcpkg
-        uses: anolishq/.github/.github/actions/setup-vcpkg@e993ae623cdaebfaef4e4a25ac806f269a6a2f86 # v2
+        uses: anolishq/.github/.github/actions/setup-vcpkg@fe0a8fce045364cb2e3552a7fbca59263395c8d6 # v2
         with:
           triplet: ${{ inputs.triplet }}
 
