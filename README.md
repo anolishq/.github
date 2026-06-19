@@ -65,6 +65,34 @@ jobs:
     uses: anolishq/.github/.github/workflows/metrics.yml@main
 ```
 
+### valgrind-leak.yml
+
+Reusable memory-leak check for the C/C++ repos: builds a target (vcpkg + a
+CMake preset) and runs a chosen command under `valgrind --leak-check=full`,
+applying a repo-provided suppressions file. **Advisory by default** (the job
+succeeds, surfacing the leak summary + a `valgrind-log` artifact); set
+`enforce: true` to fail on "definitely lost".
+
+```yaml
+jobs:
+  leak-check:
+    uses: anolishq/.github/.github/workflows/valgrind-leak.yml@<sha> # v2
+    with:
+      build-preset: ci-linux-release
+      build-target: anolis-runtime          # optional, faster than building all
+      run: "build/ci-linux-release/core/anolis-runtime --check-config test.yaml"
+      # duration: "30s"                      # for long-running binaries (sends SIGINT, then leak-checks)
+      # suppressions: valgrind.supp          # applied when present
+      # enforce: true                        # fail on definitely-lost
+```
+
+vcpkg / gRPC / protobuf / abseil produce well-documented valgrind false
+positives, so each consumer checks in its own **`valgrind.supp`**; the first run
+per repo is a triage pass — the workflow runs with `--gen-suppressions=all`, so
+the artifact contains ready-to-paste suppression blocks. Only **"definitely
+lost"** is treated as a failure; "possibly lost" / "still reachable" (library
+static/TLS allocations) are reported but ignored.
+
 ## Shared Configuration
 
 ### .markdownlint.json
