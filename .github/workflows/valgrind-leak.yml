@@ -1,0 +1,176 @@
+name: Valgrind Leak Check
+
+# Reusable valgrind leak-check for the org's C/C++ repos. Builds a repo's
+# target (vcpkg deps + a CMake preset) and runs a chosen command under
+# `valgrind --leak-check=full`, applying a repo-provided suppressions file.
+#
+# vcpkg/gRPC/protobuf/abseil produce well-documented valgrind false positives,
+# so each consumer checks in its own `valgrind.supp`; the first run per repo is
+# a triage pass to populate it.
+#
+# Advisory by default (the job succeeds and surfaces findings in the summary +
+# artifact); set `enforce: true` to fail on "definitely lost".
+
+on:
+  workflow_call:
+    inputs:
+      triplet:
+        description: "vcpkg triplet (cache key; should match the build preset's triplet)."
+        required: false
+        default: "x64-linux-static"
+        type: string
+      build-preset:
+        description: "CMake configure/build preset that produces the target binary."
+        required: true
+        type: string
+      build-target:
+        description: "Optional specific CMake target to build (faster than the whole preset)."
+        required: false
+        default: ""
+        type: string
+      run:
+        description: "Command (binary + args) to run under valgrind, relative to the repo root."
+        required: true
+        type: string
+      duration:
+        description: "If set (e.g. '30s'), wrap the command with `timeout -s <signal>` — for long-running binaries that need a graceful shutdown signal."
+        required: false
+        default: ""
+        type: string
+      signal:
+        description: "Signal `timeout` sends at `duration` (graceful shutdown)."
+        required: false
+        default: "INT"
+        type: string
+      suppressions:
+        description: "Path to a valgrind suppressions file (applied when present)."
+        required: false
+        default: "valgrind.supp"
+        type: string
+      enforce:
+        description: "Fail the job on 'definitely lost' leaks (default: advisory only)."
+        required: false
+        default: false
+        type: boolean
+      manifest-dir:
+        description: "Directory containing vcpkg.json / the CMake project root."
+        required: false
+        default: "."
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  valgrind:
+    name: valgrind leak-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind ninja-build g++ pkg-config
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup vcpkg
+        uses: anolishq/.github/.github/actions/setup-vcpkg@e993ae623cdaebfaef4e4a25ac806f269a6a2f86 # v2
+        with:
+          triplet: ${{ inputs.triplet }}
+
+      - name: Configure
+        working-directory: ${{ inputs.manifest-dir }}
+        run: cmake --preset "${{ inputs.build-preset }}"
+
+      - name: Build
+        working-directory: ${{ inputs.manifest-dir }}
+        run: |
+          if [ -n "${{ inputs.build-target }}" ]; then
+            cmake --build --preset "${{ inputs.build-preset }}" --target "${{ inputs.build-target }}" --parallel
+          else
+            cmake --build --preset "${{ inputs.build-preset }}" --parallel
+          fi
+
+      - name: Run valgrind (non-blocking)
+        id: vg
+        working-directory: ${{ inputs.manifest-dir }}
+        env:
+          SUPPRESSIONS: ${{ inputs.suppressions }}
+          DURATION: ${{ inputs.duration }}
+          SIG: ${{ inputs.signal }}
+        run: |
+          set +e
+          supp=()
+          if [ -n "${SUPPRESSIONS:-}" ] && [ -f "$SUPPRESSIONS" ]; then
+            supp=(--suppressions="$SUPPRESSIONS")
+            echo "Using suppressions: $SUPPRESSIONS"
+          else
+            echo "No suppressions file ($SUPPRESSIONS) — running unsuppressed (triage pass)."
+          fi
+          wrap=()
+          [ -n "${DURATION:-}" ] && wrap=(timeout -s "$SIG" "$DURATION")
+          echo "::group::valgrind"
+          "${wrap[@]}" valgrind \
+            --leak-check=full --show-leak-kinds=all --track-origins=yes \
+            --errors-for-leak-kinds=definite --error-exitcode=42 \
+            --gen-suppressions=all --log-file=valgrind.log \
+            ${{ inputs.run }}
+          rc=$?
+          echo "::endgroup::"
+          echo "valgrind/command exit code: $rc"
+          # definitely-lost bytes from the leak summary (0 if none / not present)
+          lost=$(grep -oE 'definitely lost: [0-9,]+ bytes' valgrind.log | grep -oE '[0-9,]+' | tr -d , | head -1)
+          lost=${lost:-0}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "definitely_lost=$lost" >> "$GITHUB_OUTPUT"
+
+      - name: Build job summary
+        if: always()
+        working-directory: ${{ inputs.manifest-dir }}
+        env:
+          LOST: ${{ steps.vg.outputs.definitely_lost }}
+          RC: ${{ steps.vg.outputs.rc }}
+        run: |
+          {
+            echo "## Valgrind leak check"
+            echo ""
+            if [ ! -f valgrind.log ]; then
+              echo "_No valgrind log produced — the build or run failed before valgrind (see step log)._"
+              exit 0
+            fi
+            echo '```'
+            grep -E 'definitely lost|indirectly lost|possibly lost|still reachable|suppressed|ERROR SUMMARY' valgrind.log || echo "(no leak summary found)"
+            echo '```'
+            echo ""
+            if [ "${LOST:-0}" -gt 0 ]; then
+              echo "⚠️ **${LOST} bytes definitely lost.** See the \`valgrind-log\` artifact (\`--gen-suppressions\` blocks included for triage)."
+            else
+              echo "✅ No 'definitely lost' leaks (after suppressions)."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload valgrind log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: valgrind-log-${{ inputs.build-preset }}
+          path: ${{ inputs.manifest-dir }}/valgrind.log
+          if-no-files-found: warn
+
+      - name: Enforce (optional)
+        if: ${{ inputs.enforce }}
+        working-directory: ${{ inputs.manifest-dir }}
+        env:
+          LOST: ${{ steps.vg.outputs.definitely_lost }}
+        run: |
+          if [ "${LOST:-0}" -gt 0 ]; then
+            echo "::error::valgrind: ${LOST} bytes definitely lost (enforce=true)"
+            exit 1
+          fi
+          echo "valgrind clean (enforce=true)"
