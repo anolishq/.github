@@ -93,6 +93,35 @@ the artifact contains ready-to-paste suppression blocks. Only **"definitely
 lost"** is treated as a failure; "possibly lost" / "still reachable" (library
 static/TLS allocations) are reported but ignored.
 
+### fuzz.yml
+
+Reusable [libFuzzer](https://llvm.org/docs/LibFuzzer.html) runner for the C/C++
+repos. Builds a repo's fuzz targets with **Clang**
+(`-fsanitize=fuzzer,address`) and runs each for a bounded time against
+its checked-in corpus. This is a short **regression** run, not a soak — keep
+`max-total-time` small. Advisory by default (crashes surface in the summary + a
+`fuzz-crashes` artifact); `enforce: true` fails on a crash.
+
+Two pieces:
+
+1. **`templates/AddFuzzTarget.cmake`** — copy into the consumer repo (e.g.
+   `cmake/AddFuzzTarget.cmake`), gate behind `option(ENABLE_FUZZING ...)`, and
+   declare targets with `anolis_add_fuzz_target(NAME ... SOURCES ... LINK ...)`.
+   A harness only defines `LLVMFuzzerTestOneInput`; libFuzzer provides `main()`.
+2. **A `ci-fuzz` CMake preset** (Clang + `ENABLE_FUZZING=ON`) the workflow configures.
+
+```yaml
+jobs:
+  fuzz:
+    uses: anolishq/.github/.github/workflows/fuzz.yml@<sha> # v2
+    with:
+      build-preset: ci-fuzz
+      fuzz-binaries: "build/ci-fuzz/fuzz/fuzz_config build/ci-fuzz/fuzz/fuzz_frame"
+      corpus-root: fuzz/corpus      # per-target subdir by binary basename
+      max-total-time: "60"          # seconds per target
+      # enforce: true               # fail on crash
+```
+
 ## Shared Configuration
 
 ### .markdownlint.json

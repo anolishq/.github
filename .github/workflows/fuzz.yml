@@ -1,0 +1,156 @@
+name: Fuzz
+
+# Reusable libFuzzer runner for the org's C/C++ repos. Builds a repo's fuzz
+# targets with Clang (`-fsanitize=fuzzer,address`, via the shared
+# AddFuzzTarget.cmake helper + an `ENABLE_FUZZING` fuzz preset) and runs each
+# for a bounded time against its checked-in corpus.
+#
+# This is a short *regression* run (re-exercise the corpus + a brief fuzz),
+# not a soak — keep `max-total-time` small. Advisory by default (surfaces
+# crashes in the summary + a `fuzz-crashes` artifact); set `enforce: true`
+# to fail the job when a target crashes.
+
+on:
+  workflow_call:
+    inputs:
+      triplet:
+        description: "vcpkg triplet (cache key)."
+        required: false
+        default: "x64-linux-static"
+        type: string
+      build-preset:
+        description: "CMake fuzz preset (Clang + ENABLE_FUZZING=ON)."
+        required: true
+        type: string
+      fuzz-binaries:
+        description: "Space-separated paths to the built fuzz target binaries (relative to manifest-dir)."
+        required: true
+        type: string
+      corpus-root:
+        description: "Directory holding per-target corpora (subdir per binary basename)."
+        required: false
+        default: "fuzz/corpus"
+        type: string
+      max-total-time:
+        description: "Seconds to run each fuzz target."
+        required: false
+        default: "60"
+        type: string
+      enforce:
+        description: "Fail the job when a target crashes (default: advisory only)."
+        required: false
+        default: false
+        type: boolean
+      manifest-dir:
+        description: "Directory containing vcpkg.json / the CMake project root."
+        required: false
+        default: "."
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  # Build the whole toolchain (vcpkg deps + project) with Clang so the
+  # code-under-test is instrumented consistently with the harness.
+  CC: clang
+  CXX: clang++
+
+jobs:
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm ninja-build pkg-config
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup vcpkg
+        uses: anolishq/.github/.github/actions/setup-vcpkg@fe0a8fce045364cb2e3552a7fbca59263395c8d6 # v2
+        with:
+          triplet: ${{ inputs.triplet }}
+
+      - name: Configure
+        working-directory: ${{ inputs.manifest-dir }}
+        run: cmake --preset "${{ inputs.build-preset }}"
+
+      - name: Build fuzz targets
+        working-directory: ${{ inputs.manifest-dir }}
+        run: cmake --build --preset "${{ inputs.build-preset }}" --parallel
+
+      - name: Run fuzz targets
+        id: fuzz
+        working-directory: ${{ inputs.manifest-dir }}
+        env:
+          BINARIES: ${{ inputs.fuzz-binaries }}
+          CORPUS_ROOT: ${{ inputs.corpus-root }}
+          MAX_TIME: ${{ inputs.max-total-time }}
+        run: |
+          set +e
+          mkdir -p fuzz-crashes
+          crashed=0
+          for bin in $BINARIES; do
+            if [ ! -x "$bin" ]; then
+              echo "::error::fuzz binary not found or not executable: $bin"
+              crashed=$((crashed+1)); continue
+            fi
+            name=$(basename "$bin")
+            corpus="$CORPUS_ROOT/$name"
+            mkdir -p "$corpus"
+            echo "::group::$name (max_total_time=${MAX_TIME}s, corpus=$corpus)"
+            "$bin" -max_total_time="$MAX_TIME" -print_final_stats=1 \
+              -artifact_prefix="fuzz-crashes/${name}-" "$corpus"
+            rc=$?
+            echo "::endgroup::"
+            echo "$name exit code: $rc"
+            if [ "$rc" -ne 0 ]; then
+              crashed=$((crashed+1))
+              echo "::warning::fuzz target '$name' exited $rc (crash/leak — see fuzz-crashes artifact)"
+            fi
+          done
+          echo "crashed=$crashed" >> "$GITHUB_OUTPUT"
+
+      - name: Build job summary
+        if: always()
+        working-directory: ${{ inputs.manifest-dir }}
+        env:
+          CRASHED: ${{ steps.fuzz.outputs.crashed }}
+        run: |
+          {
+            echo "## Fuzz run"
+            echo ""
+            n=$(find fuzz-crashes -type f 2>/dev/null | wc -l)
+            if [ "${CRASHED:-0}" -gt 0 ] || [ "$n" -gt 0 ]; then
+              echo "⚠️ **${CRASHED:-0} target(s) crashed**, ${n} reproducer(s) captured (see the \`fuzz-crashes\` artifact)."
+            else
+              echo "✅ No crashes — all targets survived the regression run."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload crashes
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fuzz-crashes
+          path: ${{ inputs.manifest-dir }}/fuzz-crashes
+          if-no-files-found: ignore
+
+      - name: Enforce (optional)
+        if: ${{ inputs.enforce }}
+        env:
+          CRASHED: ${{ steps.fuzz.outputs.crashed }}
+        run: |
+          if [ "${CRASHED:-0}" -gt 0 ]; then
+            echo "::error::fuzz: ${CRASHED} target(s) crashed (enforce=true)"
+            exit 1
+          fi
+          echo "fuzz clean (enforce=true)"
