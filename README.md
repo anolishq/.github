@@ -97,7 +97,7 @@ static/TLS allocations) are reported but ignored.
 
 Reusable [libFuzzer](https://llvm.org/docs/LibFuzzer.html) runner for the C/C++
 repos. Builds a repo's fuzz targets with **Clang**
-(`-fsanitize=fuzzer,address,undefined`) and runs each for a bounded time against
+(`-fsanitize=fuzzer,address`) and runs each for a bounded time against
 its checked-in corpus. This is a short **regression** run, not a soak — keep
 `max-total-time` small. Advisory by default (crashes surface in the summary + a
 `fuzz-crashes` artifact); `enforce: true` fails on a crash.

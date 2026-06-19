@@ -1,7 +1,7 @@
 name: Fuzz
 
 # Reusable libFuzzer runner for the org's C/C++ repos. Builds a repo's fuzz
-# targets with Clang (`-fsanitize=fuzzer,address,undefined`, via the shared
+# targets with Clang (`-fsanitize=fuzzer,address`, via the shared
 # AddFuzzTarget.cmake helper + an `ENABLE_FUZZING` fuzz preset) and runs each
 # for a bounded time against its checked-in corpus.
 #
