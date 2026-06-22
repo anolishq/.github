@@ -1,0 +1,70 @@
+name: ADPP Compatibility Matrix
+
+# Org-level, scheduled, NON-GATING compatibility matrix (anolis-protocol#28).
+#
+# Crosses released anolis-protocol conformance-harness versions with released
+# provider versions and runs the conformance harness for each pair, to surface
+# cross-version drift that no single repo's PR CI can see (a provider lane only
+# checks its own commit against one pinned harness). Report-only: results go to
+# the job summary + an artifact; the workflow never fails on a conformance
+# result. It must never gate a protocol or provider PR.
+#
+# The eligible cell set is discovered at run time (scripts/adpp_compat_*.sh), so
+# this self-activates as new released versions land — no edits needed per release.
+
+on:
+  schedule:
+    - cron: "0 5 * * 0" # Sundays 05:00 UTC (clear of the Mon 06/07/09 org scans)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adpp-compat-matrix
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    name: Released protocol × released provider
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Enumerate eligible (protocol × provider) cells
+        id: enum
+        run: |
+          scripts/adpp_compat_enumerate.sh > cells.json
+          count="$(jq 'length' cells.json)"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Discovered $count cell(s):"
+          jq -c '.[]' cells.json || true
+
+      - name: Run conformance harness for each cell
+        if: steps.enum.outputs.count != '0'
+        run: scripts/adpp_compat_run.sh cells.json results.json
+
+      - name: Write job summary
+        if: always()
+        run: |
+          if [ -f results.json ]; then
+            scripts/adpp_compat_summary.sh results.json >> "$GITHUB_STEP_SUMMARY"
+          else
+            scripts/adpp_compat_summary.sh /dev/null >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: adpp-compat-matrix
+          path: |
+            cells.json
+            results.json
+          if-no-files-found: ignore
+          retention-days: 90
