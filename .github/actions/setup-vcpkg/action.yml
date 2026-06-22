@@ -28,6 +28,17 @@ inputs:
     description: "GitHub token (reserved for future NuGet integration)"
     required: false
     default: ${{ github.token }}
+  cache-write:
+    description: >
+      Whether this job may WRITE (save) the vcpkg binary cache. Default "true".
+      Set "false" for a build variant whose dependency closure is a SUBSET of
+      another variant that shares the same cache key (same os/arch/triplet/
+      baseline/manifest) — e.g. a FluxGraph-OFF build alongside a FluxGraph-ON
+      build. A read-only job restores the superset cache but never saves, so the
+      faster subset job cannot clobber the superset cache under the shared key
+      (which would otherwise drop the expensive packages and force rebuilds).
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -67,8 +78,22 @@ runs:
       shell: bash
       run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
 
-    - name: Restore vcpkg binary cache
+    # Writer jobs (cache-write=true, default) restore AND save the cache.
+    - name: Restore + save vcpkg binary cache (writer)
+      if: inputs.cache-write == 'true'
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: ${{ github.workspace }}/.vcpkg-binary-cache
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        restore-keys: |
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
+
+    # Reader jobs (cache-write=false) restore only — no post-save — so a subset
+    # build cannot overwrite the shared key with an incomplete cache.
+    - name: Restore vcpkg binary cache (read-only)
+      if: inputs.cache-write != 'true'
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
         key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
@@ -106,4 +131,6 @@ runs:
       run: |
         set -euo pipefail
         echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> "$GITHUB_ENV"
-        echo "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/.vcpkg-binary-cache,readwrite" >> "$GITHUB_ENV"
+        mode="read"
+        if [[ "${{ inputs.cache-write }}" == "true" ]]; then mode="readwrite"; fi
+        echo "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/.vcpkg-binary-cache,$mode" >> "$GITHUB_ENV"
