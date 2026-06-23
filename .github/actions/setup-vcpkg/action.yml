@@ -78,14 +78,25 @@ runs:
       shell: bash
       run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
 
+    # The key embeds the runner ImageVersion (`img<version>`) because vcpkg's
+    # per-package ABI hash includes the compiler hash. When GitHub bumps the
+    # runner image (and with it MSVC/gcc), the old binary archives become ABI
+    # mismatches ("Restored 0 packages") and vcpkg rebuilds from source. Without
+    # the image in the key, the manifest-hash key still hits exactly, so
+    # actions/cache skips the post-save and the rebuilt archives are never
+    # persisted — making the rebuild permanent (observed: anolis Windows ~34min
+    # every run after an MSVC bump). Embedding ImageVersion rotates the key when
+    # the image changes, forcing a fresh save; the bare-prefix restore-keys still
+    # seed from a prior image so only the drifted packages rebuild.
     # Writer jobs (cache-write=true, default) restore AND save the cache.
     - name: Restore + save vcpkg binary cache (writer)
       if: inputs.cache-write == 'true'
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ env.ImageVersion }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
         restore-keys: |
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ env.ImageVersion }}-
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
 
@@ -96,8 +107,9 @@ runs:
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ env.ImageVersion }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
         restore-keys: |
+          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ env.ImageVersion }}-
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
 
