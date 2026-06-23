@@ -131,6 +131,22 @@ Shared markdownlint configuration fetched by `docs-check.yml`:
 - Line length: 140 (relaxed for technical docs)
 - MD033 disabled (allows inline HTML for VitePress components)
 
+### Provider lint/format templates
+
+Shared C++ formatting/lint config for the device providers (ezo/sim/bread), kept
+consistent with the anolis runtime. Copy each into the consumer repo root:
+
+| Template | Copy to | Purpose |
+| --- | --- | --- |
+| `templates/clang-format` | `.clang-format` | clang-format 18 style (Google base, 120 cols, 4-space indent). Gate in CI with `clang-format --dry-run --Werror`. |
+| `templates/clang-tidy` | `.clang-tidy` | High-signal checks (diagnostic/analyzer/bugprone/performance; readability off). Adjust `HeaderFilterRegex` to the repo's source roots. |
+| `templates/editorconfig` | `.editorconfig` | Editor defaults aligned with `.clang-format` (4-space C++, LF, trim trailing). |
+| `templates/provider.justfile` | `justfile` | Task runner (`setup`, `fmt`, `fmt-check`, `lint`, `check`, `test`). Set `preset` to the repo's primary CMake preset. |
+
+The CI format gate mirrors the runtime's `C++ Formatting (clang-format)` job —
+install `clang-format` on `ubuntu-24.04` (→ v18) and run `--dry-run --Werror`
+over the tracked C++ sources.
+
 ## Dependency scanning
 
 `dependency-scan.yml` is a reusable workflow that scans a repo's **vcpkg**
