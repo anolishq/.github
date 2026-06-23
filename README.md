@@ -138,25 +138,34 @@ consistent with the anolis runtime. Copy each into the consumer repo root:
 
 | Template | Copy to | Purpose |
 | --- | --- | --- |
-| `templates/clang-format` | `.clang-format` | clang-format 18 style (Google base, 120 cols, 4-space indent). Gate in CI with `clang-format --dry-run --Werror`. |
+| `templates/clang-format` | `.clang-format` | clang-format 18 style (Google base, 120 cols, 4-space indent). |
 | `templates/clang-tidy` | `.clang-tidy` | High-signal checks (diagnostic/analyzer/bugprone/performance; readability off). Adjust `HeaderFilterRegex` to the repo's source roots. |
 | `templates/editorconfig` | `.editorconfig` | Editor defaults aligned with `.clang-format` (4-space C++, LF, trim trailing). |
-| `templates/pre-commit-config.yaml` | `.pre-commit-config.yaml` | **Pinned formatter source of truth.** `mirrors-clang-format@v18.1.8` — the same PyPI wheel, run identically by devs (`pre-commit install`) and CI (`pre-commit run --all-files`). |
-| `templates/provider.justfile` | `justfile` | Task runner (`setup`, `hooks`, `fmt`, `fmt-check`, `lint`, `check`, `test`). `fmt`/`fmt-check` delegate to pre-commit. Set `preset` to the repo's primary CMake preset. |
+| `templates/provider.justfile` | `justfile` | Task runner (`setup`, `fmt`, `fmt-check`, `lint`, `check`, `test`). `fmt`/`fmt-check`/`lint` call `clang-format`/`clang-tidy` on PATH. Set `preset` to the repo's primary CMake preset. |
 
-The formatter is pinned **in-repo** via pre-commit (`.pre-commit-config.yaml`),
-so the exact clang-format version is consumed identically at commit time and in
-CI — the CI gate is a `pre-commit` job running `pre-commit run --all-files`. Pin
-the wheel rather than an apt package: `apt` versions drift by distro/image
-(unversioned `clang-format` on `ubuntu-24.04` is an experimental 18.0 snapshot;
-`clang-format-18` is 18.1.3 there but 18.1.8 on Debian), and 18.1.3 vs 18.1.8
-wrap long operator chains differently — so an apt-based gate is non-deterministic.
-The `mirrors-clang-format` hook uses the byte-identical PyPI wheel everywhere.
-This supersedes the interim CI-only `pipx run clang-format==18.1.8` gate.
+#### Pinned formatter/linter (single source of truth)
 
-> This per-repo inline gate is an interim measure. The planned org-wide source of
-> truth is a shared **pre-commit** config (pinned hooks, enforced locally and in
-> CI) — see [#69](https://github.com/anolishq/.github/issues/69).
+clang-format output is version-sensitive, so the org pins **one exact build**
+and runs it everywhere. The pin is a **SHA-512-verified static LLVM 18.1.8
+binary** (from `muttleyxd/clang-tools-static-binaries`, tag `master-796e77c`) —
+**not** an apt package (which drifts: Debian's `clang-format-18` is 18.1.8 but
+Ubuntu noble's is 18.1.3, and they format differently) and **not** a pip/npm/conda
+wheel.
+
+- **CI** installs it via the [`setup-clang-tools`](.github/actions/setup-clang-tools)
+  composite action (pin the action by SHA, like `setup-vcpkg`); the format gate is
+  then a `cpp-format` job running `just fmt-check`.
+- **Dev boxes / editors** install the same binary via
+  [`workstation-configs` `apps/clang-tools`](https://github.com/CameronBrooks11/workstation-configs),
+  so format-on-save matches CI byte-for-byte.
+- **Repos** stay tool-agnostic: the `justfile` just calls `clang-format` / `clang-tidy`
+  on `PATH`. To bump the version, update `setup-clang-tools` + `apps/clang-tools`
+  together (and reformat the tree in the same change).
+
+This replaces the earlier apt / `pipx run clang-format==18.1.8` / pre-commit gates
+(see [#69](https://github.com/anolishq/.github/issues/69)) — pre-commit's
+`mirrors-clang-format` was a `pip install clang-format` wheel under the hood, which
+didn't meet the no-pip goal.
 
 ## Dependency scanning
 
