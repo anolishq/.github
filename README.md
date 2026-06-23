@@ -141,16 +141,18 @@ consistent with the anolis runtime. Copy each into the consumer repo root:
 | `templates/clang-format` | `.clang-format` | clang-format 18 style (Google base, 120 cols, 4-space indent). Gate in CI with `clang-format --dry-run --Werror`. |
 | `templates/clang-tidy` | `.clang-tidy` | High-signal checks (diagnostic/analyzer/bugprone/performance; readability off). Adjust `HeaderFilterRegex` to the repo's source roots. |
 | `templates/editorconfig` | `.editorconfig` | Editor defaults aligned with `.clang-format` (4-space C++, LF, trim trailing). |
-| `templates/provider.justfile` | `justfile` | Task runner (`setup`, `fmt`, `fmt-check`, `lint`, `check`, `test`). Set `preset` to the repo's primary CMake preset. |
+| `templates/pre-commit-config.yaml` | `.pre-commit-config.yaml` | **Pinned formatter source of truth.** `mirrors-clang-format@v18.1.8` — the same PyPI wheel, run identically by devs (`pre-commit install`) and CI (`pre-commit run --all-files`). |
+| `templates/provider.justfile` | `justfile` | Task runner (`setup`, `hooks`, `fmt`, `fmt-check`, `lint`, `check`, `test`). `fmt`/`fmt-check` delegate to pre-commit. Set `preset` to the repo's primary CMake preset. |
 
-The CI format gate runs the **exact** clang-format via the PyPI wheel —
-`xargs pipx run clang-format==18.1.8 --dry-run --Werror` over the tracked C++
-sources. Pin the wheel rather than an apt package: `apt` versions drift by
-distro/image (unversioned `clang-format` on `ubuntu-24.04` is an experimental
-18.0 snapshot; `clang-format-18` is 18.1.3 there but 18.1.8 on Debian), and
-18.1.3 vs 18.1.8 wrap long operator chains differently — so an apt-based gate is
-non-deterministic. The PyPI wheel is byte-identical everywhere; match it locally
-with the same `pipx run clang-format==18.1.8`.
+The formatter is pinned **in-repo** via pre-commit (`.pre-commit-config.yaml`),
+so the exact clang-format version is consumed identically at commit time and in
+CI — the CI gate is a `pre-commit` job running `pre-commit run --all-files`. Pin
+the wheel rather than an apt package: `apt` versions drift by distro/image
+(unversioned `clang-format` on `ubuntu-24.04` is an experimental 18.0 snapshot;
+`clang-format-18` is 18.1.3 there but 18.1.8 on Debian), and 18.1.3 vs 18.1.8
+wrap long operator chains differently — so an apt-based gate is non-deterministic.
+The `mirrors-clang-format` hook uses the byte-identical PyPI wheel everywhere.
+This supersedes the interim CI-only `pipx run clang-format==18.1.8` gate.
 
 > This per-repo inline gate is an interim measure. The planned org-wide source of
 > truth is a shared **pre-commit** config (pinned hooks, enforced locally and in
