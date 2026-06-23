@@ -2,6 +2,12 @@
 # set `preset` to the repo's primary CMake configure/test preset.
 #
 # Standard recipes (match the org convention): setup, fmt, fmt-check, lint, check, test.
+#
+# `fmt`/`fmt-check`/`lint` call `clang-format`/`clang-tidy` on PATH. The org pins
+# those to a SHA-verified static LLVM 18.1.8 build — installed in CI by the
+# `setup-clang-tools` action and on dev boxes by workstation-configs
+# `apps/clang-tools` — so dev, editor, and CI run byte-identical bits. Do NOT use
+# the distro/apt clang-format here (it drifts: Debian 18.1.8 vs Ubuntu 18.1.3).
 
 # Primary CMake preset — override per repo (e.g. ci-linux-release).
 preset := "ci-linux-release"
@@ -17,19 +23,16 @@ default:
 setup:
     cmake --preset {{preset}}
 
-# Install the pinned pre-commit hooks (one-time per clone).
-hooks:
-    pre-commit install
-
-# Format C++ sources in place via the pinned pre-commit clang-format.
+# Format C++ sources in place (pinned clang-format 18.1.8).
 fmt:
-    pre-commit run clang-format --all-files
+    {{cpp_files}} | xargs clang-format -i
 
-# Verify formatting via the pinned pre-commit hooks (CI gate).
+# Verify formatting without modifying files (CI gate; pinned clang-format 18.1.8).
 fmt-check:
-    pre-commit run --all-files
+    {{cpp_files}} | xargs clang-format --dry-run --Werror
 
-# Static analysis over the compile database (requires a configured build dir).
+# Static analysis over the compile database (pinned clang-tidy 18.1.8; needs a
+# configured build dir with CMAKE_EXPORT_COMPILE_COMMANDS=ON).
 lint:
     run-clang-tidy -p build/{{preset}} $({{cpp_files}})
 
