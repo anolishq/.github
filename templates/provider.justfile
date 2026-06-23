@@ -17,13 +17,17 @@ default:
 setup:
     cmake --preset {{preset}}
 
-# Format C++ sources in place (clang-format 18).
-fmt:
-    {{cpp_files}} | xargs clang-format -i
+# Install the pinned pre-commit hooks (one-time per clone).
+hooks:
+    pre-commit install
 
-# Verify formatting without modifying files (CI gate).
+# Format C++ sources in place via the pinned pre-commit clang-format.
+fmt:
+    pre-commit run clang-format --all-files
+
+# Verify formatting via the pinned pre-commit hooks (CI gate).
 fmt-check:
-    {{cpp_files}} | xargs clang-format --dry-run --Werror
+    pre-commit run --all-files
 
 # Static analysis over the compile database (requires a configured build dir).
 lint:
