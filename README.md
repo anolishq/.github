@@ -144,8 +144,12 @@ consistent with the anolis runtime. Copy each into the consumer repo root:
 | `templates/provider.justfile` | `justfile` | Task runner (`setup`, `fmt`, `fmt-check`, `lint`, `check`, `test`). Set `preset` to the repo's primary CMake preset. |
 
 The CI format gate mirrors the runtime's `C++ Formatting (clang-format)` job —
-install `clang-format` on `ubuntu-24.04` (→ v18) and run `--dry-run --Werror`
-over the tracked C++ sources.
+install **`clang-format-18`** on `ubuntu-24.04` and run `clang-format-18
+--dry-run --Werror` over the tracked C++ sources. Pin the versioned package: the
+unversioned `clang-format` on `ubuntu-24.04` resolves to an experimental 18.0
+snapshot (`1:18.0-59~exp2`) that formats some constructs differently from the
+stable 18.1.8 (`clang-format-18`), so an unpinned gate is non-deterministic.
+Locally, match it with `clang-format-18` or `pipx run clang-format==18.1.8`.
 
 ## Dependency scanning
 
