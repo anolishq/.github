@@ -116,6 +116,31 @@ jobs:
             || { echo "FAIL: derived commit ($head) != baseline"; exit 1; }
           echo "OK: vcpkg checked out at the baseline derived from vcpkg-configuration.json"
 
+  test-setup-clang-tools:
+    name: Test setup-clang-tools (format + tidy resource dir)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - name: Setup clang-tools (with clang-tidy)
+        uses: ./.github/actions/setup-clang-tools
+        with:
+          tidy: "true"
+      - name: Verify versions + clang-tidy resolves builtin headers with no flags
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang-format --version | grep -q "18.1.8" || { echo "FAIL: clang-format not 18.1.8"; exit 1; }
+          clang-tidy --version   | grep -q "18.1.8" || { echo "FAIL: clang-tidy not 18.1.8"; exit 1; }
+          # The point of the vendored resource dir: clang-tidy must find clang's
+          # builtin headers (stddef.h) with NO -resource-dir flag.
+          printf '#include <stddef.h>\nsize_t f(void) { return 0; }\n' > /tmp/t.c
+          out=$(clang-tidy /tmp/t.c -- -std=c11 2>&1) || true
+          echo "$out"
+          grep -q "file not found" <<<"$out" && { echo "FAIL: clang-tidy cannot resolve builtin headers (resource dir missing)"; exit 1; }
+          echo "OK: clang-format + clang-tidy 18.1.8; resource dir resolves with zero flags"
+
   ok:
     name: ok
     if: always()
@@ -123,6 +148,7 @@ jobs:
       - docs-check
       - test-setup-vcpkg
       - test-setup-vcpkg-derived
+      - test-setup-clang-tools
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
