@@ -63,6 +63,11 @@ runs:
           # this action (pinned by the action SHA).
           mkdir -p "${dest}/lib/clang/18"
           tar -xJf "${{ github.action_path }}/clang18-resource-dir.tar.xz" -C "${dest}/lib/clang/18"
+          # Orchestration scripts (pinned LLVM 18.1.8), vendored beside this action:
+          # run-clang-tidy for whole-tree `just lint`, clang-tidy-diff for the
+          # changed-lines-only PR gate.
+          install -m 0755 "${{ github.action_path }}/run-clang-tidy.py"  "${dest}/bin/run-clang-tidy"
+          install -m 0755 "${{ github.action_path }}/clang-tidy-diff.py" "${dest}/bin/clang-tidy-diff"
         fi
 
         echo "${dest}/bin" >> "${GITHUB_PATH}"
