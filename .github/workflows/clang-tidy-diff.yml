@@ -1,0 +1,134 @@
+name: Clang-Tidy (diff)
+
+# Reusable changed-lines-only clang-tidy gate for the org's vcpkg-based C++ repos.
+#
+# Runs the PINNED clang-tidy (via setup-clang-tools) over ONLY the lines a PR
+# changes (upstream clang-tidy-diff.py), honoring the repo's .clang-tidy. New
+# findings surface as GitHub annotations on the PR diff plus a job summary.
+#
+# Advisory by default (blocking: false) — never fails the PR. Flip blocking: true
+# (and add the job to the repo's `ok` gate) to fail on new findings on changed
+# lines, once a repo's findings are quiet. clang-tidy needs the protobuf-generated
+# headers, so the job configures + builds first (bounded by the warm vcpkg cache).
+
+on:
+  workflow_call:
+    inputs:
+      triplet:
+        description: "vcpkg triplet (match the repo's CI triplet so the warm cache is reused)."
+        required: false
+        default: "x64-linux-static"
+        type: string
+      configure-preset:
+        description: "CMake configure preset — installs vcpkg deps + exports compile_commands.json."
+        required: true
+        type: string
+      build-preset:
+        description: "CMake build preset used to generate headers. Defaults to configure-preset."
+        required: false
+        default: ""
+        type: string
+      paths:
+        description: "Space-separated git pathspecs of C/C++ sources to lint."
+        required: false
+        default: "*.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.hxx"
+        type: string
+      blocking:
+        description: "Fail the job when a finding lands on changed lines (default: advisory)."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  clang-tidy-diff:
+    name: clang-tidy (changed lines)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0 # need the PR base for the changed-lines diff
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++ pkg-config
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup vcpkg
+        uses: anolishq/.github/.github/actions/setup-vcpkg@b2d9b16b9accee0e58d37e7d05add68b6621961a # v2.2
+        with:
+          triplet: ${{ inputs.triplet }}
+
+      - name: Setup pinned clang-tools
+        uses: anolishq/.github/.github/actions/setup-clang-tools@aecf0bcf76076221340fc37ff090ad7cac5dc9de # setup-clang-tools
+        with:
+          tidy: "true"
+
+      - name: Configure (vcpkg deps + compile_commands)
+        run: cmake --preset ${{ inputs.configure-preset }}
+
+      - name: Build (generate protobuf headers)
+        run: cmake --build --preset ${{ inputs.build-preset || inputs.configure-preset }}
+
+      - name: clang-tidy on changed lines
+        env:
+          BUILD_DIR: build/${{ inputs.configure-preset }}
+          PATHS: ${{ inputs.paths }}
+          BLOCKING: ${{ inputs.blocking }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE"
+
+          # Changed-lines diff (merge-base) over C/C++ sources only.
+          # shellcheck disable=SC2086
+          git diff -U0 "origin/${BASE}...HEAD" -- $PATHS > pr.diff || true
+          if [ ! -s pr.diff ]; then
+            echo "No C/C++ changes in this PR — nothing to lint." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # clang-tidy-diff runs the pinned clang-tidy only on the changed lines.
+          # Its stderr is harmless Python 3.12 SyntaxWarnings → discard.
+          clang-tidy-diff -p1 -path "$BUILD_DIR" \
+            -clang-tidy-binary "$(command -v clang-tidy)" -j "$(nproc)" \
+            < pr.diff > tidy.out 2>/dev/null || true
+
+          # Emit GitHub annotations (inline on the PR diff). clang-tidy prints
+          # absolute paths; GitHub only renders annotations inline when the path
+          # is repo-relative, so strip the workspace prefix.
+          awk -F: -v root="${GITHUB_WORKSPACE}/" '
+            / (warning|error): / {
+              file = $1
+              if (index(file, root) == 1) file = substr(file, length(root) + 1)
+              msg = $0
+              sub(/^[^:]*:[^:]*:[^:]*: (warning|error): /, "", msg)
+              gsub(/%/, "%25", msg); gsub(/\r/, "", msg)
+              printf "::warning file=%s,line=%s,col=%s,title=clang-tidy::%s\n", file, $2, $3, msg
+            }' tidy.out
+
+          findings=$(grep -cE ' (warning|error): ' tidy.out || true)
+          {
+            echo "## clang-tidy (changed lines)"
+            if [ "$findings" -eq 0 ]; then
+              echo "✅ No new findings on the changed lines."
+            else
+              echo "⚠️ **${findings} finding(s)** on changed lines — see the inline annotations."
+              echo '```'
+              sed -n '1,80p' tidy.out
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$BLOCKING" = "true" ] && [ "$findings" -gt 0 ]; then
+            echo "::error::${findings} new clang-tidy finding(s) on changed lines."
+            exit 1
+          fi
