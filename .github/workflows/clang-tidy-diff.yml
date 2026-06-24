@@ -38,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      apt-packages:
+        description: "Extra apt packages to install before configuring (e.g. a preset's build deps like graphviz). Space-separated; empty by default."
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -54,9 +59,12 @@ jobs:
           fetch-depth: 0 # need the PR base for the changed-lines diff
 
       - name: Install build tools
+        env:
+          EXTRA_APT: ${{ inputs.apt-packages }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build g++ pkg-config
+          # shellcheck disable=SC2086
+          sudo apt-get install -y ninja-build g++ pkg-config $EXTRA_APT
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
