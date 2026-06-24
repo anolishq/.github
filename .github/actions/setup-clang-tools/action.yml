@@ -36,24 +36,34 @@ runs:
           exit 1
         fi
 
+        # Install into a real toolchain layout (bin/ + lib/) so clang-tidy can
+        # find its resource dir as <bin>/../lib/clang/18 (see the tidy block).
         dest="${HOME}/.local/clang-tools"
-        mkdir -p "${dest}"
+        mkdir -p "${dest}/bin"
 
         fetch() {  # name  expected-sha512
           local name="$1" sha="$2"
-          curl -fsSL --retry 3 --retry-delay 2 -o "${dest}/${name}" \
+          curl -fsSL --retry 3 --retry-delay 2 -o "${dest}/bin/${name}" \
             "https://github.com/${REPO}/releases/download/${TAG}/${name}_linux-amd64"
-          echo "${sha}  ${dest}/${name}" | sha512sum -c -
-          chmod +x "${dest}/${name}"
+          echo "${sha}  ${dest}/bin/${name}" | sha512sum -c -
+          chmod +x "${dest}/bin/${name}"
         }
 
         fetch clang-format-18 "${CF_SHA512}"
-        ln -sf "${dest}/clang-format-18" "${dest}/clang-format"
+        ln -sf "${dest}/bin/clang-format-18" "${dest}/bin/clang-format"
 
         if [ "${{ inputs.tidy }}" = "true" ]; then
           fetch clang-tidy-18 "${CT_SHA512}"
-          ln -sf "${dest}/clang-tidy-18" "${dest}/clang-tidy"
+          ln -sf "${dest}/bin/clang-tidy-18" "${dest}/bin/clang-tidy"
+          # The static clang-tidy ships WITHOUT clang's builtin-header resource
+          # dir (stddef.h etc.), so it errors "'stddef.h' file not found". Drop the
+          # vendored, pinned 18.1.8 resource dir into <dest>/lib/clang/18 so the
+          # binary (at <dest>/bin) resolves it as <bin>/../lib/clang/18 with ZERO
+          # flags. The headers are version-stable; the tarball is committed beside
+          # this action (pinned by the action SHA).
+          mkdir -p "${dest}/lib/clang/18"
+          tar -xJf "${{ github.action_path }}/clang18-resource-dir.tar.xz" -C "${dest}/lib/clang/18"
         fi
 
-        echo "${dest}" >> "${GITHUB_PATH}"
-        "${dest}/clang-format" --version
+        echo "${dest}/bin" >> "${GITHUB_PATH}"
+        "${dest}/bin/clang-format" --version
