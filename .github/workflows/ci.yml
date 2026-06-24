@@ -139,7 +139,11 @@ jobs:
           out=$(clang-tidy /tmp/t.c -- -std=c11 2>&1) || true
           echo "$out"
           grep -q "file not found" <<<"$out" && { echo "FAIL: clang-tidy cannot resolve builtin headers (resource dir missing)"; exit 1; }
-          echo "OK: clang-format + clang-tidy 18.1.8; resource dir resolves with zero flags"
+          # Orchestration scripts on PATH (for `just lint` and the diff-only gate).
+          command -v run-clang-tidy  >/dev/null || { echo "FAIL: run-clang-tidy not installed"; exit 1; }
+          command -v clang-tidy-diff >/dev/null || { echo "FAIL: clang-tidy-diff not installed"; exit 1; }
+          clang-tidy-diff -h >/dev/null 2>&1     || { echo "FAIL: clang-tidy-diff not runnable"; exit 1; }
+          echo "OK: clang-format + clang-tidy 18.1.8; resource dir resolves; run-clang-tidy + clang-tidy-diff present"
 
   ok:
     name: ok
