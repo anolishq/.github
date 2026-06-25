@@ -8,13 +8,21 @@ Checks: >
   bugprone-*,
   -readability-*,
   -bugprone-macro-parentheses,
-  -bugprone-easily-swappable-parameters
+  -bugprone-easily-swappable-parameters,
+  -performance-enum-size
 # Note: consider re-enabling specific readability checks once bugprone/perf are clean.
+# performance-enum-size is off org-wide: our enums are stable type tags, so widening
+# the underlying type buys nothing while the check is pure noise.
 WarningsAsErrors: ""
-# Limit diagnostics to the repo's own source roots. ADJUST per provider to match
-# its layout (e.g. "src", "include", "tests"); this default covers the common case.
+# Limit diagnostics to the repo's own source roots. ANCHOR this to the repo's own
+# layout — do NOT include a bare "include" leg, because vendored vcpkg headers live
+# under .../vcpkg_installed/.../include/ and would match. Providers keep their own
+# headers under src/, so "src|tests" is the default; a repo with its own include dir
+# anchors it explicitly (e.g. fluxgraph uses "include/fluxgraph").
+# (ExcludeHeaderFilterRegex is NOT an option — it is LLVM-19-only and errors on the
+# pinned clang-tidy 18.1.8.)
 # Generated protobuf sources live under build/ and are excluded — also disable
 # clang-tidy on the protobuf CMake target so compile_commands does not drag them in.
-HeaderFilterRegex: ".*/(src|include|tests)/.*"
+HeaderFilterRegex: ".*/(src|tests)/.*"
 FormatStyle: file
 ...
