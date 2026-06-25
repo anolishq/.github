@@ -76,7 +76,7 @@ jobs:
           triplet: ${{ inputs.triplet }}
 
       - name: Setup pinned clang-tools
-        uses: anolishq/.github/.github/actions/setup-clang-tools@aecf0bcf76076221340fc37ff090ad7cac5dc9de # setup-clang-tools
+        uses: anolishq/.github/.github/actions/setup-clang-tools@9869a5f4bee7da9c7c1dc9bae033cd0137c4801d # setup-clang-tools
         with:
           tidy: "true"
 
