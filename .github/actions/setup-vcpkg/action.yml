@@ -91,7 +91,7 @@ runs:
     # Writer jobs (cache-write=true, default) restore AND save the cache.
     - name: Restore + save vcpkg binary cache (writer)
       if: inputs.cache-write == 'true'
-      uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
         key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ env.ImageVersion }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
@@ -104,7 +104,7 @@ runs:
     # build cannot overwrite the shared key with an incomplete cache.
     - name: Restore vcpkg binary cache (read-only)
       if: inputs.cache-write != 'true'
-      uses: actions/cache/restore@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
         key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ env.ImageVersion }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
