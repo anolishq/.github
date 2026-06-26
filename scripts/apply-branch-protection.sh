@@ -42,6 +42,7 @@ REPOS=(
   anolis-protocol
   anolis-provider-bread
   anolis-provider-ezo
+  anolis-provider-sdk
   anolis-provider-sim
   anolis-telemetry-export
   anolis-workbench
