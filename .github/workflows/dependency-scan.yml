@@ -111,7 +111,7 @@ jobs:
         run: pip install "cve-bin-tool @ git+https://github.com/ossf/cve-bin-tool.git@${{ inputs.cve-bin-tool-ref }}"
 
       - name: Cache CVE database
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6
         with:
           path: ~/.cache/cve-bin-tool
           key: cve-bin-tool-db-v3-${{ github.run_id }}
