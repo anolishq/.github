@@ -37,7 +37,6 @@ DRY_RUN=false
 REPOS=(
   .github
   anolis
-  anolis-operator-ui
   anolis-projects
   anolis-protocol
   anolis-provider-bread
