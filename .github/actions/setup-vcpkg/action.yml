@@ -101,15 +101,11 @@ runs:
     # actions/cache skips the post-save and the rebuilt archives are never
     # persisted — making the rebuild permanent (observed: anolis Windows ~34min,
     # provider-sim Windows+FluxGraph ~2h every run after an MSVC bump).
-    #
-    # NOTE: this segment used `${{ env.ImageVersion }}`, which ALWAYS expanded to
-    # the empty string — the `env.*` expression context does not contain runner
-    # process vars — so the key never rotated and the rebuild loop above was, in
-    # fact, permanent on every image bump. The value is now resolved in a `run:`
-    # step (steps.img.outputs.version) where $ImageVersion is actually readable.
-    # On an image bump the primary key misses -> the bare-prefix restore-keys seed
-    # from a prior image so only the drifted packages rebuild -> the miss triggers
-    # the post-save, persisting the refreshed cache.
+    # The image version comes from steps.img above. Do NOT revert it to
+    # `${{ env.ImageVersion }}`: the env.* context excludes runner process vars,
+    # so it expands to empty and the key stops rotating. On self-hosted runners
+    # $ImageVersion is unset and resolves to `imgunknown` — fine, a self-managed
+    # toolchain is stable and needs no ABI rotation.
     # Writer jobs (cache-write=true, default) restore AND save the cache.
     - name: Restore + save vcpkg binary cache (writer)
       if: inputs.cache-write == 'true'
