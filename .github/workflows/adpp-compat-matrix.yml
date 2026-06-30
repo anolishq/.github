@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # publish the verdict to the adpp-compat-data branch
 
 concurrency:
   group: adpp-compat-matrix
@@ -68,3 +68,49 @@ jobs:
             results.json
           if-no-files-found: ignore
           retention-days: 90
+
+      # Durable publish (anolishq/.github#101): the artifact above is ephemeral
+      # (90-day retention) and unauthenticated consumers cannot fetch it. Mirror
+      # results.json + a trimmed latest.json onto the dedicated `adpp-compat-data`
+      # branch so anolis-workbench#137 can read a stable verdict via raw URL/gh api.
+      # A data branch (not main) avoids main's branch protection and PR noise.
+      - name: Publish verdict to adpp-compat-data branch
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f results.json ]; then
+            echo "no results.json (zero cells or harness skipped); nothing to publish"
+            exit 0
+          fi
+          gen="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # Trimmed, consumer-facing verdict. Keeps 0F's native identity
+          # (provider = repo name, version = v-prefixed tag); the consumer
+          # reconciles to its own key format. status ∈ pass|fail|error.
+          jq --arg gen "$gen" \
+            '{schema: 1, generated_at: $gen,
+              pairs: [ .[] | {protocol, provider, version, status, summary} ]}' \
+            results.json > latest.json
+          echo "latest.json:"; jq -c '{schema, generated_at, count: (.pairs|length)}' latest.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          wt="$(mktemp -d)"
+          if git ls-remote --exit-code --heads origin adpp-compat-data >/dev/null 2>&1; then
+            git fetch --depth=1 origin adpp-compat-data
+            git worktree add "$wt" FETCH_HEAD
+            git -C "$wt" switch -C adpp-compat-data
+          else
+            git worktree add --detach "$wt" HEAD
+            git -C "$wt" checkout --orphan adpp-compat-data
+            git -C "$wt" rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p "$wt/data/adpp-compat"
+          cp results.json latest.json "$wt/data/adpp-compat/"
+          git -C "$wt" add data/adpp-compat
+          if git -C "$wt" diff --cached --quiet; then
+            echo "verdict unchanged; nothing to publish"
+          else
+            git -C "$wt" commit -m "chore(adpp-compat): publish verdict ($gen)"
+            git -C "$wt" push origin adpp-compat-data
+            echo "published to adpp-compat-data:data/adpp-compat/{results,latest}.json"
+          fi
