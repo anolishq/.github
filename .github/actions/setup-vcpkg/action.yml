@@ -89,6 +89,55 @@ runs:
         echo "Resolved runner image version: ${ImageVersion:-unknown} (ImageOS=${ImageOS:-unknown})"
         echo "version=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
 
+    - name: Resolve vcpkg manifest input hash
+      id: inputs
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Hash ONLY this consumer's vcpkg manifest inputs, anchored to the dir
+        # holding its vcpkg-configuration.json. The old key used
+        # hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**'),
+        # whose `**/` globs span the WHOLE workspace — so a job that checks out an
+        # unrelated repo into a subdir (e.g. provider-sim's FluxGraph-ON lane checks
+        # out fluxgraph into ./fluxgraph) folds that repo's files into the key. The
+        # ON/OFF variants then compute different keys and the cache-write subset
+        # protection silently disengages (anolishq/.github#97). A workspace-rooted
+        # glob cannot exclude a nested checkout, so hash an explicit file set.
+        cfg="${{ inputs.vcpkg-config }}"
+        if [[ ! -f "$cfg" ]]; then
+          cfg="$(find "${{ github.workspace }}" -maxdepth 4 -name vcpkg-configuration.json -not -path '*/vcpkg/*' 2>/dev/null | sort | head -1)"
+        fi
+        # NOTE: this discovery is identical to the `resolve` step above so the
+        # commit and the input hash always describe the SAME repo. The find
+        # fallback only fires for a `path:`-subdir checkout (every current
+        # consumer keeps vcpkg-configuration.json at the workspace root, so the
+        # `-f "$cfg"` test is true and the fallback is skipped). It assumes the
+        # consumer's config sorts before any nested foreign config.
+        if [[ -n "$cfg" && -f "$cfg" ]]; then
+          root="$(cd "$(dirname "$cfg")" && pwd)"
+        else
+          root="${{ github.workspace }}"
+        fi
+        echo "Hashing vcpkg manifest inputs under: $root"
+        # Explicit consumer files (NOT a workspace glob): the root manifest pair
+        # plus its sibling triplets/ definitions. Relative paths + contents are
+        # hashed, so the absolute checkout dir does not affect the digest.
+        list="$(mktemp)"
+        for f in vcpkg.json vcpkg-configuration.json; do
+          [[ -f "$root/$f" ]] && echo "$f" >> "$list"
+        done
+        if [[ -d "$root/triplets" ]]; then
+          (cd "$root" && find triplets -type f) >> "$list"
+        fi
+        LC_ALL=C sort -o "$list" "$list"  # locale-stable ordering
+        echo "Files folded into the cache key:"; sed 's/^/  /' "$list"
+        digest="$(while IFS= read -r rel; do
+          printf '%s\0' "$rel"
+          sha256sum "$root/$rel" | awk '{print $1}'
+        done < "$list" | sha256sum | awk '{print $1}')"
+        echo "Resolved vcpkg inputs hash: $digest"
+        echo "inputs_hash=$digest" >> "$GITHUB_OUTPUT"
+
     - name: Prepare binary cache directory
       shell: bash
       run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
@@ -112,7 +161,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-${{ steps.inputs.outputs.inputs_hash }}
         restore-keys: |
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
@@ -125,7 +174,7 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-${{ hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**') }}
+        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-${{ steps.inputs.outputs.inputs_hash }}
         restore-keys: |
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-
           vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
