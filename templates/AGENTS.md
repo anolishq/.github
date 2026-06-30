@@ -18,7 +18,7 @@
 
 <!-- Keep only the lines true for this repo. -->
 - **C++ repos:** clang-format / clang-tidy are pinned to **18.1.8** via the
-  shared `setup-clang-tools` action (matches workstation-configs on dev boxes) —
+  shared `setup-clang-tools` action (install the same pinned binary on dev boxes) —
   do NOT use pip/apt/pre-commit/container versions. Run `clang-format -i` before
   **every** commit (CI fails otherwise). vcpkg comes from the shared
   `setup-vcpkg` action.
