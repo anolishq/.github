@@ -9,8 +9,8 @@ description: >
   statically-linked LLVM 18.1.8 build from
   muttleyxd/clang-tools-static-binaries, pinned by release tag AND SHA-512 so
   every CI runner and dev box runs byte-identical bits (and therefore identical
-  formatting). Keep this version in lockstep with
-  workstation-configs `apps/clang-tools` so dev and CI match.
+  formatting). Dev boxes install this same pinned binary (same release tag and
+  SHA-512 below) so dev and CI match.
 
 inputs:
   tidy:

@@ -155,9 +155,9 @@ wheel.
 - **CI** installs it via the [`setup-clang-tools`](.github/actions/setup-clang-tools)
   composite action (pin the action by SHA, like `setup-vcpkg`); the format gate is
   then a `cpp-format` job running `just fmt-check`.
-- **Dev boxes / editors** install the same binary via
-  [`workstation-configs` `apps/clang-tools`](https://github.com/CameronBrooks11/workstation-configs),
-  so format-on-save matches CI byte-for-byte.
+- **Dev boxes / editors** install the same SHA-pinned binary the action uses
+  (`muttleyxd/clang-tools-static-binaries`, LLVM 18.1.8), so format-on-save
+  matches CI byte-for-byte.
 - **Repos** stay tool-agnostic: the `justfile` just calls `clang-format` / `clang-tidy`
   on `PATH`. To bump the version, update `setup-clang-tools` + `apps/clang-tools`
   together (and reformat the tree in the same change).
