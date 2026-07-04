@@ -235,7 +235,13 @@ and its SPDX SBOMs carry no CPE/purl, so generic SBOM scanners
 Every repo's `main` is protected with one canonical classic ruleset: a
 single required status check named `ok` (the final aggregator job each
 repo's `ci.yml` exposes), `strict` up-to-date merges, admins included, no
-force-pushes or deletions, and PRs required (0 approvals).
+force-pushes or deletions, and PRs required (0 approvals). Each repo's
+immutable release tags are additionally protected against deletion and
+force-push via a per-repo ruleset (`protect-version-tags`) — the classic
+tag-protection API was retired by GitHub, so this is a repository ruleset,
+which is free on public repos. The ruleset targets **dotted** tags
+(`refs/tags/v*.*`, e.g. `v2.4`, `v0.2.7`) so the *moving* bare-major aliases
+(`v1`/`v2`, which the release flow re-points with `git tag -f`) stay mutable.
 
 Org-level rulesets would let us define this once, but they require GitHub
 Team; on the Free plan the equivalent is `scripts/apply-branch-protection.sh`,
@@ -246,5 +252,23 @@ which holds the canonical config and applies it to every `ok`-bearing repo.
 ./scripts/apply-branch-protection.sh            # apply / heal drift
 ```
 
+The script classifies each repo as OK / SKIPPED (archived) / FAILED, exits
+non-zero only on a genuine failure, and prints a reconciliation report that
+flags any non-archived org repo not yet enrolled.
+
 Run it after onboarding a new repo — once that repo's CI exposes an `ok`
 job, add it to the `REPOS` list in the script and re-run.
+
+### Self-healing (scheduled)
+
+`.github/workflows/branch-protection-heal.yml` runs the script weekly (and on
+`workflow_dispatch`) so drift is re-asserted automatically. Because the default
+`GITHUB_TOKEN` cannot write branch protection / rulesets on *other* repos, the
+workflow needs an admin-scoped PAT:
+
+1. Create a **fine-grained PAT** with **Administration: read and write** on all
+   `anolishq` repos (or a classic PAT with the `repo` scope).
+2. Store it as a repo secret named **`BRANCH_PROTECTION_PAT`** in `anolishq/.github`.
+
+Without the secret the workflow fails fast with an actionable error rather than
+a confusing 403.
