@@ -1,0 +1,53 @@
+name: Branch Protection Heal
+
+# Self-healing branch + tag protection for the org.
+#
+# Re-asserts the canonical `main` branch protection and the `v*` tag ruleset
+# across every enrolled repo on a schedule (and on demand), so drift is healed
+# automatically instead of being noticed by hand. The script is idempotent and
+# classifies each repo as OK / SKIPPED (archived) / FAILED, failing the run only
+# on a genuine problem. See scripts/apply-branch-protection.sh.
+#
+# Requires an admin-scoped PAT in the `BRANCH_PROTECTION_PAT` secret: the default
+# GITHUB_TOKEN cannot PUT branch protection / rulesets across other org repos.
+# Provision a fine-grained PAT with "Administration: read and write" on all
+# anolishq repos (or a classic PAT with the `repo` scope) and store it as a repo
+# secret named BRANCH_PROTECTION_PAT. See README ("Branch protection").
+
+on:
+  schedule:
+    - cron: "0 6 * * 3" # Wednesdays 06:00 UTC — clear of the Mon/Sun org scans
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-protection-heal
+  cancel-in-progress: false
+
+jobs:
+  heal:
+    name: Heal branch + tag protection
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Verify admin PAT is present
+        env:
+          BRANCH_PROTECTION_PAT: ${{ secrets.BRANCH_PROTECTION_PAT }}
+        run: |
+          if [ -z "${BRANCH_PROTECTION_PAT}" ]; then
+            echo "::error::BRANCH_PROTECTION_PAT secret is not set. Provision an" \
+                 "admin-scoped PAT (Administration: read/write on all anolishq" \
+                 "repos) and store it as the BRANCH_PROTECTION_PAT repo secret." \
+                 "See scripts/apply-branch-protection.sh and the README."
+            exit 1
+          fi
+
+      - name: Apply / heal branch + tag protection
+        env:
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_PAT }}
+        run: ./scripts/apply-branch-protection.sh
