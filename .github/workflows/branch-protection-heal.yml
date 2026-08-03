@@ -1,8 +1,9 @@
 name: Branch Protection Heal
 
-# Self-healing branch + tag protection for the org.
+# Self-healing branch + tag protection and repo settings for the org.
 #
-# Re-asserts the canonical `main` branch protection and the `v*` tag ruleset
+# Re-asserts the canonical `main` branch protection, the `v*` tag ruleset, and
+# the canonical repo settings (delete_branch_on_merge, allow_auto_merge)
 # across every enrolled repo on a schedule (and on demand), so drift is healed
 # automatically instead of being noticed by hand. The script is idempotent and
 # classifies each repo as OK / SKIPPED (archived) / FAILED, failing the run only
@@ -28,7 +29,7 @@ concurrency:
 
 jobs:
   heal:
-    name: Heal branch + tag protection
+    name: Heal branch + tag protection and repo settings
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -47,7 +48,7 @@ jobs:
             exit 1
           fi
 
-      - name: Apply / heal branch + tag protection
+      - name: Apply / heal branch + tag protection and repo settings
         env:
           GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_PAT }}
         run: ./scripts/apply-branch-protection.sh

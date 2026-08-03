@@ -4,10 +4,12 @@
 #
 # Applies the canonical classic branch protection to the `main` branch of
 # every anolishq repository whose CI exposes the shared `ok` aggregator
-# status check, and protects each repo's `v*` release tags against deletion
-# and force-push. This is the single source of truth for `main` + tag
-# protection across the org while we remain on the GitHub Free plan (org-level
-# rulesets require GitHub Team; per-repo rulesets are free on public repos).
+# status check, protects each repo's `v*` release tags against deletion and
+# force-push, and asserts the canonical repository settings. This is the single
+# source of truth for `main` protection, tag protection, and merge behaviour
+# across the org while we remain on the GitHub Free plan (org-level rulesets
+# require GitHub Team; per-repo rulesets are free on public repos; and
+# `delete_branch_on_merge` has no org-level default at any tier).
 #
 # The canonical protection requires exactly one status check — `ok` — which
 # every repo's CI exposes as a final aggregator job. See each repo's
@@ -18,7 +20,7 @@
 # (see .github/workflows/branch-protection-heal.yml) to heal drift.
 #
 # Per-repo outcomes are classified so a scheduled run is legible:
-#   - OK       — protection asserted (or already conformant)
+#   - OK       — protection + settings asserted (or already conformant)
 #   - SKIPPED  — expected, non-fatal (repo archived: archived repos reject
 #                protection PUTs by design, so this must NOT fail the run)
 #   - FAILED   — genuine problem (repo missing, API error) → non-zero exit
@@ -88,6 +90,29 @@ read -r -d '' PROTECTION <<'JSON' || true
 }
 JSON
 
+# Canonical repository settings.
+#
+# `delete_branch_on_merge` is load-bearing, not cosmetic. Renovate hands merges
+# to GitHub via platformAutomerge, so GitHub — not Renovate — deletes the head
+# branch, and GitHub honours this flag. With it false, branch names that recur
+# forever (renovate/lock-file-maintenance, renovate/python-dev-tooling …)
+# survive their own merge. Renovate then reuses the stale branch, regenerates
+# nothing against the new base, and aborts with "Detected empty commit -
+# aborting git push"; the leftover branch reopens as a duplicate PR that
+# squash-merges empty, and eventually latches to "PR Edited (Blocked)",
+# silently killing lock file maintenance for that repo. GitHub offers no
+# org-level default for this, so it is per-repo drift and belongs here.
+# See anolishq/.github#113.
+#
+# `allow_auto_merge` is what lets Renovate delegate the merge to GitHub in the
+# first place; without it, automerge-eligible PRs sit open indefinitely.
+read -r -d '' REPO_SETTINGS <<'JSON' || true
+{
+  "delete_branch_on_merge": true,
+  "allow_auto_merge": true
+}
+JSON
+
 # Tag protection ruleset. Blocks deletion and force-push (non-fast-forward) of
 # immutable release tags; creation of new release tags is intentionally allowed.
 #
@@ -140,7 +165,7 @@ apply_tag_ruleset() {
 
 for repo in "${REPOS[@]}"; do
   if [[ "$DRY_RUN" == true ]]; then
-    printf 'would protect %s/%s (branch %s + tag ruleset %s)\n' \
+    printf 'would protect %s/%s (branch %s + tag ruleset %s + repo settings)\n' \
       "$ORG" "$repo" "$BRANCH" "$TAG_RULESET_NAME"
     continue
   fi
@@ -162,6 +187,8 @@ for repo in "${REPOS[@]}"; do
 
   if echo "$PROTECTION" | gh api -X PUT \
        "/repos/${ORG}/${repo}/branches/${BRANCH}/protection" \
+       -H "Accept: application/vnd.github+json" --input - >/dev/null \
+     && echo "$REPO_SETTINGS" | gh api -X PATCH "/repos/${ORG}/${repo}" \
        -H "Accept: application/vnd.github+json" --input - >/dev/null \
      && apply_tag_ruleset "$repo"; then
     echo "ok"
