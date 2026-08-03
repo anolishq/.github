@@ -243,6 +243,17 @@ which is free on public repos. The ruleset targets **dotted** tags
 (`refs/tags/v*.*`, e.g. `v2.4`, `v0.2.7`) so the *moving* bare-major aliases
 (`v1`/`v2`, which the release flow re-points with `git tag -f`) stay mutable.
 
+The same script also asserts the canonical **repository settings**:
+`delete_branch_on_merge` and `allow_auto_merge`, both `true`. These are not
+cosmetic. Renovate delegates merges to GitHub via `platformAutomerge`, so
+GitHub is what deletes the head branch — and with `delete_branch_on_merge`
+off, branch names that recur forever (`renovate/lock-file-maintenance`,
+`renovate/python-dev-tooling` …) survive their own merge, get reused, and
+wedge Renovate into `Detected empty commit - aborting git push` → duplicate
+PRs that squash-merge empty → `PR Edited (Blocked)`, which silently kills lock
+file maintenance for that repo. GitHub has no org-level default for it, so it
+drifts per repo. See anolishq/.github#113.
+
 Org-level rulesets would let us define this once, but they require GitHub
 Team; on the Free plan the equivalent is `scripts/apply-branch-protection.sh`,
 which holds the canonical config and applies it to every `ok`-bearing repo.
