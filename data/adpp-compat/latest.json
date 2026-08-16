@@ -1,69 +1,69 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-09T05:44:18Z",
+  "generated_at": "2026-08-16T05:23:46Z",
   "pairs": [
     {
       "protocol": "v1.7.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "42 passed, 7 skipped, 37 deselected in 0.40s"
+      "summary": "42 passed, 7 skipped, 37 deselected in 0.34s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "41 passed, 7 skipped, 36 deselected in 0.38s"
+      "summary": "41 passed, 7 skipped, 36 deselected in 0.32s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "40 passed, 7 skipped, 35 deselected in 0.38s"
+      "summary": "40 passed, 7 skipped, 35 deselected in 0.32s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "36 passed, 7 skipped, 33 deselected in 0.35s"
+      "summary": "36 passed, 7 skipped, 33 deselected in 0.30s"
     },
     {
       "protocol": "v1.3.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.4",
       "status": "error",
-      "summary": "23 deselected in 0.06s"
+      "summary": "23 deselected in 0.05s"
     },
     {
       "protocol": "v1.7.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.3",
       "status": "pass",
-      "summary": "41 passed, 8 skipped, 37 deselected in 0.31s"
+      "summary": "41 passed, 8 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.3",
       "status": "pass",
-      "summary": "41 passed, 7 skipped, 36 deselected in 0.31s"
+      "summary": "41 passed, 7 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.3",
       "status": "pass",
-      "summary": "40 passed, 7 skipped, 35 deselected in 0.30s"
+      "summary": "40 passed, 7 skipped, 35 deselected in 0.26s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.3",
       "status": "pass",
-      "summary": "36 passed, 7 skipped, 33 deselected in 0.28s"
+      "summary": "36 passed, 7 skipped, 33 deselected in 0.24s"
     },
     {
       "protocol": "v1.3.0",
@@ -77,28 +77,28 @@
       "provider": "anolis-provider-ezo",
       "version": "v0.3.2",
       "status": "pass",
-      "summary": "41 passed, 8 skipped, 37 deselected in 0.30s"
+      "summary": "41 passed, 8 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.2",
       "status": "pass",
-      "summary": "41 passed, 7 skipped, 36 deselected in 0.30s"
+      "summary": "41 passed, 7 skipped, 36 deselected in 0.25s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.2",
       "status": "pass",
-      "summary": "40 passed, 7 skipped, 35 deselected in 0.29s"
+      "summary": "40 passed, 7 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.2",
       "status": "pass",
-      "summary": "36 passed, 7 skipped, 33 deselected in 0.27s"
+      "summary": "36 passed, 7 skipped, 33 deselected in 0.23s"
     },
     {
       "protocol": "v1.3.0",
@@ -112,28 +112,28 @@
       "provider": "anolis-provider-ezo",
       "version": "v0.3.1",
       "status": "pass",
-      "summary": "41 passed, 8 skipped, 37 deselected in 0.30s"
+      "summary": "41 passed, 8 skipped, 37 deselected in 0.25s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.1",
       "status": "pass",
-      "summary": "41 passed, 7 skipped, 36 deselected in 0.30s"
+      "summary": "41 passed, 7 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.1",
       "status": "pass",
-      "summary": "40 passed, 7 skipped, 35 deselected in 0.29s"
+      "summary": "40 passed, 7 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.1",
       "status": "pass",
-      "summary": "36 passed, 7 skipped, 33 deselected in 0.27s"
+      "summary": "36 passed, 7 skipped, 33 deselected in 0.23s"
     },
     {
       "protocol": "v1.3.0",
@@ -147,28 +147,28 @@
       "provider": "anolis-provider-ezo",
       "version": "v0.3.0",
       "status": "pass",
-      "summary": "41 passed, 8 skipped, 37 deselected in 0.30s"
+      "summary": "41 passed, 8 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.0",
       "status": "pass",
-      "summary": "41 passed, 7 skipped, 36 deselected in 0.30s"
+      "summary": "41 passed, 7 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.0",
       "status": "pass",
-      "summary": "40 passed, 7 skipped, 35 deselected in 0.29s"
+      "summary": "40 passed, 7 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-ezo",
       "version": "v0.3.0",
       "status": "pass",
-      "summary": "36 passed, 7 skipped, 33 deselected in 0.28s"
+      "summary": "36 passed, 7 skipped, 33 deselected in 0.23s"
     },
     {
       "protocol": "v1.3.0",
@@ -182,28 +182,28 @@
       "provider": "anolis-provider-sim",
       "version": "v0.2.7",
       "status": "pass",
-      "summary": "45 passed, 4 skipped, 37 deselected in 0.32s"
+      "summary": "45 passed, 4 skipped, 37 deselected in 0.28s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.7",
       "status": "pass",
-      "summary": "44 passed, 4 skipped, 36 deselected in 0.32s"
+      "summary": "44 passed, 4 skipped, 36 deselected in 0.27s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.7",
       "status": "pass",
-      "summary": "43 passed, 4 skipped, 35 deselected in 0.31s"
+      "summary": "43 passed, 4 skipped, 35 deselected in 0.27s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.7",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.29s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.25s"
     },
     {
       "protocol": "v1.3.0",
@@ -217,28 +217,28 @@
       "provider": "anolis-provider-sim",
       "version": "v0.2.6",
       "status": "pass",
-      "summary": "44 passed, 5 skipped, 37 deselected in 0.30s"
+      "summary": "44 passed, 5 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.6",
       "status": "pass",
-      "summary": "44 passed, 4 skipped, 36 deselected in 0.30s"
+      "summary": "44 passed, 4 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.6",
       "status": "pass",
-      "summary": "43 passed, 4 skipped, 35 deselected in 0.29s"
+      "summary": "43 passed, 4 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.6",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.28s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.24s"
     },
     {
       "protocol": "v1.3.0",
@@ -252,28 +252,28 @@
       "provider": "anolis-provider-sim",
       "version": "v0.2.5",
       "status": "pass",
-      "summary": "43 passed, 6 skipped, 37 deselected in 0.30s"
+      "summary": "43 passed, 6 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.5",
       "status": "pass",
-      "summary": "43 passed, 5 skipped, 36 deselected in 0.30s"
+      "summary": "43 passed, 5 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.5",
       "status": "pass",
-      "summary": "42 passed, 5 skipped, 35 deselected in 0.29s"
+      "summary": "42 passed, 5 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-sim",
       "version": "v0.2.5",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.28s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.27s"
     },
     {
       "protocol": "v1.3.0",
@@ -287,28 +287,28 @@
       "provider": "anolis-provider-bread",
       "version": "v0.3.8",
       "status": "pass",
-      "summary": "44 passed, 5 skipped, 37 deselected in 0.33s"
+      "summary": "44 passed, 5 skipped, 37 deselected in 0.28s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.8",
       "status": "pass",
-      "summary": "43 passed, 5 skipped, 36 deselected in 0.33s"
+      "summary": "43 passed, 5 skipped, 36 deselected in 0.28s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.8",
       "status": "pass",
-      "summary": "42 passed, 5 skipped, 35 deselected in 0.32s"
+      "summary": "42 passed, 5 skipped, 35 deselected in 0.27s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.8",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.30s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.26s"
     },
     {
       "protocol": "v1.3.0",
@@ -322,28 +322,28 @@
       "provider": "anolis-provider-bread",
       "version": "v0.3.7",
       "status": "pass",
-      "summary": "43 passed, 6 skipped, 37 deselected in 0.31s"
+      "summary": "43 passed, 6 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.7",
       "status": "pass",
-      "summary": "43 passed, 5 skipped, 36 deselected in 0.30s"
+      "summary": "43 passed, 5 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.7",
       "status": "pass",
-      "summary": "42 passed, 5 skipped, 35 deselected in 0.30s"
+      "summary": "42 passed, 5 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.7",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.28s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.23s"
     },
     {
       "protocol": "v1.3.0",
@@ -357,28 +357,28 @@
       "provider": "anolis-provider-bread",
       "version": "v0.3.6",
       "status": "pass",
-      "summary": "43 passed, 6 skipped, 37 deselected in 0.31s"
+      "summary": "43 passed, 6 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.6",
       "status": "pass",
-      "summary": "43 passed, 5 skipped, 36 deselected in 0.30s"
+      "summary": "43 passed, 5 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.6",
       "status": "pass",
-      "summary": "42 passed, 5 skipped, 35 deselected in 0.30s"
+      "summary": "42 passed, 5 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.6",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.28s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.24s"
     },
     {
       "protocol": "v1.3.0",
@@ -392,28 +392,28 @@
       "provider": "anolis-provider-bread",
       "version": "v0.3.5",
       "status": "pass",
-      "summary": "43 passed, 6 skipped, 37 deselected in 0.31s"
+      "summary": "43 passed, 6 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.5",
       "status": "pass",
-      "summary": "43 passed, 5 skipped, 36 deselected in 0.30s"
+      "summary": "43 passed, 5 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.5",
       "status": "pass",
-      "summary": "42 passed, 5 skipped, 35 deselected in 0.30s"
+      "summary": "42 passed, 5 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.5",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.28s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.24s"
     },
     {
       "protocol": "v1.3.0",
@@ -427,28 +427,28 @@
       "provider": "anolis-provider-bread",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "43 passed, 6 skipped, 37 deselected in 0.31s"
+      "summary": "43 passed, 6 skipped, 37 deselected in 0.26s"
     },
     {
       "protocol": "v1.6.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "43 passed, 5 skipped, 36 deselected in 0.30s"
+      "summary": "43 passed, 5 skipped, 36 deselected in 0.26s"
     },
     {
       "protocol": "v1.5.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "42 passed, 5 skipped, 35 deselected in 0.30s"
+      "summary": "42 passed, 5 skipped, 35 deselected in 0.25s"
     },
     {
       "protocol": "v1.4.0",
       "provider": "anolis-provider-bread",
       "version": "v0.3.4",
       "status": "pass",
-      "summary": "39 passed, 4 skipped, 33 deselected in 0.28s"
+      "summary": "39 passed, 4 skipped, 33 deselected in 0.23s"
     },
     {
       "protocol": "v1.3.0",
