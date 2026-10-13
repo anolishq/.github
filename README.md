@@ -122,6 +122,83 @@ jobs:
       # enforce: true               # fail on crash
 ```
 
+### clang-tidy-diff.yml
+
+Reusable clang-tidy gate for the vcpkg-based C++ repos. It runs the pinned
+clang-tidy 18.1.8 (from `setup-clang-tools`) over **only the lines a PR
+changes**, using upstream `clang-tidy-diff.py` and the repo's own
+`.clang-tidy`. Findings appear as annotations on the PR diff and in the job
+summary. The job configures and builds the preset first, because clang-tidy
+needs `compile_commands.json` and the generated protobuf headers.
+
+**Advisory by default.** With `blocking: true` the job fails when a finding
+lands on a changed line; list the job in the repo's `ok` aggregator so that
+failure gates the merge. Lines a PR does not touch are not linted, so existing
+findings elsewhere never block it.
+
+The workflow is not in `v2`: callers pin it to the **`clang-tidy-diff`** tag.
+
+```yaml
+jobs:
+  clang-tidy:
+    permissions:
+      contents: read
+    uses: anolishq/.github/.github/workflows/clang-tidy-diff.yml@<sha> # clang-tidy-diff
+    with:
+      configure-preset: ci-linux-tidy
+      triplet: x64-linux          # the repo's CI triplet
+      apt-packages: graphviz      # preset build deps vcpkg does not provide
+      blocking: true
+```
+
+Inputs:
+
+| Input | Default | Description |
+| ----- | ------- | ----------- |
+| `configure-preset` | (required) | CMake configure preset; must export `compile_commands.json` to `build/<preset>` |
+| `build-preset` | `configure-preset` | Build preset run before linting, to generate headers |
+| `triplet` | `x64-linux-static` | vcpkg triplet; must match the repo's CI triplet |
+| `paths` | `*.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.hxx` | Space-separated git pathspecs to lint |
+| `blocking` | `false` | Fail the job on a finding on a changed line |
+| `apt-packages` | empty | Space-separated apt packages installed before configuring |
+
+What a caller must satisfy:
+
+- **The configure preset must keep the default `binaryDir`,
+  `build/<presetName>`, and set `CMAKE_EXPORT_COMPILE_COMMANDS=ON`.** The gate
+  reads the database from `build/<configure-preset>`. Without one there,
+  clang-tidy prints `Error while trying to load a compilation database` to
+  stderr, which the gate discards, and lints each changed file with no build
+  flags: a file with a full-path include fails with
+  `clang-diagnostic-error: file not found`, and a file without one is checked
+  with clang-tidy's defaults instead of the repo's flags. A repo whose main
+  preset overrides `binaryDir` adds a tidy preset that keeps the default —
+  fluxgraph's `ci-linux-release-server` writes to `build-server/`, so its gate
+  uses `ci-linux-tidy`. Enable every optional component in that preset, so all
+  of the repo's sources are in the database.
+- **`triplet` must match the repo's CI triplet**, or the gate misses the warm
+  vcpkg cache and rebuilds the dependency set from source; in fluxgraph, gRPC
+  built cold hit the job's 30-minute timeout. Pass build dependencies that vcpkg
+  does not provide in `apt-packages` (fluxgraph's diagram tool needs
+  `graphviz`).
+- **A changed header is linted with a borrowed compile command.** Headers have
+  no entry in `compile_commands.json`, so clang-tidy uses the command of the
+  translation unit it judges closest by file name and path. If that unit belongs
+  to a target without the header's include root — a generated `*.pb.cc`, for
+  example — the header's full-path includes fail with
+  `clang-diagnostic-error: file not found`. A `.cpp` in the header's own target,
+  beside it or with the same file name, is the match clang-tidy picks, which is
+  one reason the repos keep headers beside their `.cpp` under `src/`. A
+  directory of headers with no `.cpp`, such as fluxgraph's
+  `include/fluxgraph/transform/`, depends on which unit gets picked. Check a new
+  one locally before relying on the gate:
+
+  ```bash
+  cmake --preset <preset>
+  cmake --build --preset <preset>   # generated headers, if any
+  clang-tidy -p build/<preset> path/to/new_dir/header.hpp
+  ```
+
 ## Shared Configuration
 
 ### .markdownlint.json
