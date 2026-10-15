@@ -65,6 +65,49 @@ jobs:
     uses: anolishq/.github/.github/workflows/metrics.yml@main
 ```
 
+### version-sync.yml
+
+Fails when the version strings a repo keeps in several files disagree. It
+runs `scripts/assert_version_sync.py` against the repo's
+`version-locations.txt`.
+
+```yaml
+jobs:
+  version-sync:
+    uses: anolishq/.github/.github/workflows/version-sync.yml@<sha> # v2
+    with:
+      python-version: '3.12'
+      working-directory: '.'
+```
+
+Inputs:
+
+| Input | Default | Description |
+| ----- | ------- | ----------- |
+| `python-version` | `3.12` | Python used to run the script |
+| `working-directory` | `.` | Directory holding `version-locations.txt`; tracked paths resolve from it. Only `.` works: the script path `_github/scripts/...` resolves from this directory too |
+
+`version-locations.txt` has one `path:regex` entry per line. Blank lines and
+lines starting with `#` are skipped. The line splits at its first `:`, so
+the path cannot contain one and the regex can. The regex is searched in the
+file with `re.MULTILINE`, and its first capture group is the version:
+
+```text
+# version-locations.txt
+CMakeLists.txt:project\(.* VERSION ([0-9]+\.[0-9]+\.[0-9]+)
+vcpkg.json:"version": "([0-9]+\.[0-9]+\.[0-9]+)"
+```
+
+The script exits 1 when the versions differ, and 2 on a configuration
+error: `version-locations.txt` missing or malformed, a tracked file missing,
+or a regex with no match.
+
+The script runs at the commit the caller pins. The workflow checks this
+repo out at `job.workflow_sha`, the commit of the workflow file that defines
+the job, so a `@<sha> # v2` pin runs that commit's script and a change on
+`main` reaches callers only when `v2` moves. A pin to a commit older than
+this checkout `ref` still runs `main`'s script.
+
 ### valgrind-leak.yml
 
 Reusable memory-leak check for the C/C++ repos: builds a target (vcpkg + a
