@@ -179,7 +179,8 @@ lands on a changed line; list the job in the repo's `ok` aggregator so that
 failure gates the merge. Lines a PR does not touch are not linted, so existing
 findings elsewhere never block it. In either mode the job fails when a PR
 changes C/C++ sources and clang-tidy could not check them: no
-`compile_commands.json`, a crash, or a clang-tidy that cannot start.
+`compile_commands.json` or one with no entries, a crash, or a clang-tidy
+that cannot start.
 
 The workflow is not in `v2`: callers pin it to the **`clang-tidy-diff`** tag.
 
