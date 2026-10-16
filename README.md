@@ -245,7 +245,11 @@ What a caller must satisfy:
 
 ### .markdownlint.json
 
-Shared markdownlint configuration fetched by `docs-check.yml`:
+Shared markdownlint configuration fetched by `docs-check.yml`, at the
+commit the caller pins (`job.workflow_sha`). It is fetched only when the
+caller has no markdownlint config of its own: `.markdownlint.jsonc`, `.json`,
+`.yaml`, `.yml`, `.cjs` or `.mjs`, or a `.markdownlint-cli2.*` file. A
+failed download fails the job.
 
 - Line length: 140 (relaxed for technical docs)
 - MD033 disabled (allows inline HTML for VitePress components)
