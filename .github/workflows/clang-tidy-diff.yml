@@ -6,10 +6,12 @@ name: Clang-Tidy (diff)
 # changes (upstream clang-tidy-diff.py), honoring the repo's .clang-tidy. New
 # findings surface as GitHub annotations on the PR diff plus a job summary.
 #
-# Advisory by default (blocking: false) — never fails the PR. Flip blocking: true
-# (and add the job to the repo's `ok` gate) to fail on new findings on changed
-# lines, once a repo's findings are quiet. clang-tidy needs the protobuf-generated
-# headers, so the job configures + builds first (bounded by the warm vcpkg cache).
+# Advisory by default (blocking: false) — findings never fail the job. Flip
+# blocking: true (and add the job to the repo's `ok` gate) to fail on new findings
+# on changed lines, once a repo's findings are quiet. In either mode the job fails
+# when there is no compile_commands.json or clang-tidy does not run cleanly.
+# clang-tidy needs the protobuf-generated headers, so the job configures + builds
+# first (bounded by the warm vcpkg cache).
 
 on:
   workflow_call:
@@ -104,11 +106,23 @@ jobs:
             exit 0
           fi
 
+          # Without a database clang-tidy lints with no build flags, and
+          # clang-tidy-diff still exits 0, so a missing one would pass the gate.
+          if [ ! -s "$BUILD_DIR/compile_commands.json" ]; then
+            printf '## clang-tidy (changed lines)\n❌ No compile_commands.json in %s.\n' \
+              "$BUILD_DIR" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::No compile_commands.json in ${BUILD_DIR}. The configure preset must keep binaryDir build/<preset> and export compile commands."
+            exit 1
+          fi
+
           # clang-tidy-diff runs the pinned clang-tidy only on the changed lines.
-          # Its stderr is harmless Python 3.12 SyntaxWarnings → discard.
-          clang-tidy-diff -p1 -path "$BUILD_DIR" \
+          # -W hides the vendored script's Python 3.12 SyntaxWarnings; its own
+          # errors (a crash, a binary that cannot start) still reach tidy.err.
+          tidy_rc=0
+          python3 -W ignore::SyntaxWarning "$(command -v clang-tidy-diff)" \
+            -p1 -path "$BUILD_DIR" \
             -clang-tidy-binary "$(command -v clang-tidy)" -j "$(nproc)" \
-            < pr.diff > tidy.out 2>/dev/null || true
+            < pr.diff > tidy.out 2> tidy.err || tidy_rc=$?
 
           # Emit GitHub annotations (inline on the PR diff). clang-tidy prints
           # absolute paths; GitHub only renders annotations inline when the path
@@ -124,6 +138,25 @@ jobs:
             }' tidy.out
 
           findings=$(grep -cE ' (warning|error): ' tidy.out || true)
+
+          # The script exits 1 for a crash and for clang-tidy's own error:
+          # diagnostics, which the count reports, and 0 when clang-tidy cannot
+          # start or load the database. So check its stderr, and its exit
+          # status when there is nothing to count.
+          if grep -qE 'Terminated by signal|^Failed: |Error while trying to load a compilation database' tidy.err \
+            || { [ "$tidy_rc" -ne 0 ] && [ "$findings" -eq 0 ]; }; then
+            cat tidy.err >&2
+            {
+              echo "## clang-tidy (changed lines)"
+              echo "❌ clang-tidy did not run cleanly (exit ${tidy_rc}), so the changed lines were not checked."
+              echo '```'
+              sed -n '1,40p' tidy.err
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::clang-tidy did not run cleanly (exit ${tidy_rc}); see the log."
+            exit 1
+          fi
+
           {
             echo "## clang-tidy (changed lines)"
             if [ "$findings" -eq 0 ]; then
