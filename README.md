@@ -177,7 +177,9 @@ needs `compile_commands.json` and the generated protobuf headers.
 **Advisory by default.** With `blocking: true` the job fails when a finding
 lands on a changed line; list the job in the repo's `ok` aggregator so that
 failure gates the merge. Lines a PR does not touch are not linted, so existing
-findings elsewhere never block it.
+findings elsewhere never block it. In either mode the job fails when a PR
+changes C/C++ sources and clang-tidy could not check them: no
+`compile_commands.json`, a crash, or a clang-tidy that cannot start.
 
 The workflow is not in `v2`: callers pin it to the **`clang-tidy-diff`** tag.
 
@@ -209,12 +211,9 @@ What a caller must satisfy:
 
 - **The configure preset must keep the default `binaryDir`,
   `build/<presetName>`, and set `CMAKE_EXPORT_COMPILE_COMMANDS=ON`.** The gate
-  reads the database from `build/<configure-preset>`. Without one there,
-  clang-tidy prints `Error while trying to load a compilation database` to
-  stderr, which the gate discards, and lints each changed file with no build
-  flags: a file with a full-path include fails with
-  `clang-diagnostic-error: file not found`, and a file without one is checked
-  with clang-tidy's defaults instead of the repo's flags. A repo whose main
+  reads the database from `build/<configure-preset>`, and fails before running
+  clang-tidy when there is none, because clang-tidy would otherwise lint each
+  changed file with no build flags. A repo whose main
   preset overrides `binaryDir` adds a tidy preset that keeps the default —
   fluxgraph's `ci-linux-release-server` writes to `build-server/`, so its gate
   uses `ci-linux-tidy`. Enable every optional component in that preset, so all
