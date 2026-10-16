@@ -34,15 +34,24 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Any config markdownlint-cli2 reads counts as the caller's own. Otherwise
+      # fetch the org default from the commit the caller pinned, not a moving tag.
       - name: Ensure markdownlint config
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
-          if [ ! -f .markdownlint.json ]; then
-            echo "No local config found, fetching org default"
-            curl -sL https://raw.githubusercontent.com/anolishq/.github/v2/.markdownlint.json \
-              -o .markdownlint.json
-          else
-            echo "Using local .markdownlint.json"
-          fi
+          for f in .markdownlint.jsonc .markdownlint.json .markdownlint.yaml \
+            .markdownlint.yml .markdownlint.cjs .markdownlint.mjs \
+            .markdownlint-cli2.jsonc .markdownlint-cli2.yaml \
+            .markdownlint-cli2.cjs .markdownlint-cli2.mjs; do
+            if [ -f "$f" ]; then
+              echo "Using local $f"
+              exit 0
+            fi
+          done
+          echo "No local markdownlint config found, fetching org default at ${WORKFLOW_SHA}"
+          curl -fsSL "https://raw.githubusercontent.com/anolishq/.github/${WORKFLOW_SHA}/.markdownlint.json" \
+            -o .markdownlint.json
 
       - name: Markdown Lint
         id: lint
