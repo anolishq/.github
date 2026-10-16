@@ -28,6 +28,7 @@ Validates documentation on PRs and pushes:
 
 - **Markdown lint** — style and formatting checks
 - **VitePress build** — catches Vue template parsing errors before they break the docs site
+- **Link check** — fails on dead local links (lychee, offline)
 
 ```yaml
 # .github/workflows/docs.yml
@@ -35,7 +36,7 @@ name: Docs
 on: [push, pull_request]
 jobs:
   check:
-    uses: anolishq/.github/.github/workflows/docs-check.yml@main
+    uses: anolishq/.github/.github/workflows/docs-check.yml@<sha> # v2
 ```
 
 Inputs:
@@ -45,6 +46,7 @@ Inputs:
 | `docs-path` | `docs` | Path to docs directory |
 | `markdownlint-globs` | `docs/**/*.md`, `README.md`, `CONTRIBUTING.md` | Files to lint |
 | `skip-vitepress` | `false` | Skip VitePress build check |
+| `skip-link-check` | `false` | Skip local dead-link check |
 
 ### metrics.yml
 
@@ -252,8 +254,10 @@ caller has no markdownlint config of its own: `.markdownlint.jsonc`, `.json`,
 `.yaml`, `.yml`, `.cjs` or `.mjs`, or a `.markdownlint-cli2.*` file. A
 failed download fails the job.
 
-- Line length: 140 (relaxed for technical docs)
-- MD033 disabled (allows inline HTML for VitePress components)
+- Every rule enabled (`"default": true`) except line length
+  (`"MD013": false`)
+- Inline HTML (MD033) is flagged; a caller that needs it disables MD033 in
+  its own config
 
 ### Provider lint/format templates
 
