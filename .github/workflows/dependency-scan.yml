@@ -47,7 +47,7 @@ permissions:
 jobs:
   scan:
     name: vcpkg CVE scan
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Cold cache builds the dependency set from source (grpc/protobuf/openssl);
     # warm cache (shared with CI's triplet) is fast.
     timeout-minutes: 90
