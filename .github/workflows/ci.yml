@@ -116,6 +116,61 @@ jobs:
             || { echo "FAIL: derived commit ($head) != baseline"; exit 1; }
           echo "OK: vcpkg checked out at the baseline derived from vcpkg-configuration.json"
 
+  # The action's compiler hash must be the one vcpkg puts in each package's ABI
+  # (the last field of triplet_abi in vcpkg_abi_info.txt), with and without
+  # CC/CXX set, or jobs with different compilers share a cache key again.
+  test-setup-vcpkg-compiler:
+    name: Test setup-vcpkg compiler hash (${{ matrix.os }}, ${{ matrix.compiler }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, compiler: default, cc: "", cxx: "" }
+          - { os: ubuntu-24.04, compiler: clang, cc: clang, cxx: clang++ }
+          - { os: ubuntu-26.04, compiler: default, cc: "", cxx: "" }
+          - { os: ubuntu-26.04, compiler: clang, cc: clang, cxx: clang++ }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install clang
+        if: matrix.compiler == 'clang'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang
+
+      - name: Setup vcpkg
+        id: setup
+        uses: ./.github/actions/setup-vcpkg
+        with:
+          vcpkg-commit: "66c0373dc7fca549e5803087b9487edfe3aca0a1"
+          triplet: x64-linux
+          cache-write: "false"
+
+      - name: Compare with the compiler hash vcpkg records
+        shell: bash
+        env:
+          HASH: ${{ steps.setup.outputs.compiler-hash }}
+          KEY: ${{ steps.setup.outputs.cache-key }}
+        run: |
+          set -euo pipefail
+          echo "action hash: $HASH"
+          echo "cache key:   $KEY"
+          [[ "$KEY" == *"-cc${HASH}-"* ]] || { echo "FAIL: cache key does not carry the compiler hash"; exit 1; }
+          "$VCPKG_ROOT/vcpkg" install yaml-cpp --triplet x64-linux --binarysource=clear
+          abi="$VCPKG_ROOT/installed/x64-linux/share/yaml-cpp/vcpkg_abi_info.txt"
+          vcpkg_hash="$(awk '$1 == "triplet_abi" { n = split($2, f, "-"); print f[n] }' "$abi")"
+          echo "vcpkg hash:  $vcpkg_hash"
+          [[ -n "$vcpkg_hash" && "$HASH" == "$vcpkg_hash" ]] \
+            || { echo "FAIL: action compiler hash ($HASH) != vcpkg's ($vcpkg_hash)"; exit 1; }
+          echo "OK: the cache key carries vcpkg's compiler hash"
+
   test-setup-clang-tools:
     name: Test setup-clang-tools (format + tidy resource dir)
     runs-on: ubuntu-26.04
@@ -152,6 +207,7 @@ jobs:
       - docs-check
       - test-setup-vcpkg
       - test-setup-vcpkg-derived
+      - test-setup-vcpkg-compiler
       - test-setup-clang-tools
     runs-on: ubuntu-latest
     timeout-minutes: 5

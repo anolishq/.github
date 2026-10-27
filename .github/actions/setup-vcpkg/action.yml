@@ -40,6 +40,16 @@ inputs:
     required: false
     default: "true"
 
+outputs:
+  compiler-hash:
+    description: >
+      vcpkg's compiler hash for the compilers this job resolves ($CC/$CXX, else
+      cc/c++), or "msvc" on Windows. Part of the cache key.
+    value: ${{ steps.compiler.outputs.hash }}
+  cache-key:
+    description: "The binary-cache key this job restores (and, as a writer, saves)."
+    value: ${{ steps.key.outputs.key }}
+
 runs:
   using: composite
   steps:
@@ -88,6 +98,44 @@ runs:
         # compiler bumps. See the cache-key comment below.
         echo "Resolved runner image version: ${ImageVersion:-unknown} (ImageOS=${ImageOS:-unknown})"
         echo "version=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve compiler hash
+      id: compiler
+      shell: bash
+      run: |
+        set -euo pipefail
+        # vcpkg's per-package ABI includes a compiler hash that its
+        # scripts/detect_compiler computes as sha1(sha1(C compiler) .
+        # sha1(C++ compiler)), for the compilers CMake resolves: $CC/$CXX when
+        # set (first word, as CMake reads them), else cc/c++. So a job that sets
+        # CC=clang builds different packages from a gcc job with the same
+        # triplet. Without this in the key the two share an entry: whichever saves
+        # first leaves the other with an exact hit on packages it cannot use, so
+        # it rebuilds every run and never saves. Compute the same hash here.
+        # $CC/$CXX must be set at job or workflow level so they also reach the
+        # step that runs vcpkg; a value set only on that step is not seen here.
+        # On Windows vcpkg finds MSVC itself, and the image version already in
+        # the key covers it.
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          echo "Windows: compiler hash not computed (MSVC; covered by the image version)"
+          echo "hash=msvc" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        resolve() {
+          local word="${1%% *}" path
+          path="$(command -v -- "$word")" \
+            || { echo "::error::compiler '$word' (from \$CC/\$CXX or the cc/c++ default) is not on PATH; install it before this step" >&2; return 1; }
+          echo "$path"
+        }
+        cc="$(resolve "${CC:-cc}")"
+        cxx="$(resolve "${CXX:-c++}")"
+        c_hash="$(sha1sum "$cc" | cut -d' ' -f1)"
+        cxx_hash="$(sha1sum "$cxx" | cut -d' ' -f1)"
+        hash="$(printf '%s%s' "$c_hash" "$cxx_hash" | sha1sum | cut -d' ' -f1)"
+        echo "C compiler:   $cc -> $(readlink -f "$cc")"
+        echo "C++ compiler: $cxx -> $(readlink -f "$cxx")"
+        echo "Resolved compiler hash: $hash"
+        echo "hash=$hash" >> "$GITHUB_OUTPUT"
 
     - name: Resolve vcpkg manifest input hash
       id: inputs
@@ -142,6 +190,28 @@ runs:
       shell: bash
       run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
 
+    # The compiler hash sits right after the triplet so every restore-key but the
+    # last stays within one compiler. The last, the bare triplet prefix, is for a
+    # compiler's first run (and the first run after this key format changed): it
+    # restores another compiler's archives, which vcpkg ignores, then builds and
+    # saves this compiler's own key, since a restore-key hit is not an exact hit.
+    - name: Compose cache key
+      id: key
+      shell: bash
+      run: |
+        set -euo pipefail
+        base="vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-"
+        cc="${base}cc${{ steps.compiler.outputs.hash }}-"
+        commit="${cc}${{ steps.resolve.outputs.commit }}-"
+        img="${commit}img${{ steps.img.outputs.version }}-"
+        echo "key=${img}${{ steps.inputs.outputs.inputs_hash }}" >> "$GITHUB_OUTPUT"
+        {
+          echo "restore-keys<<EOF"
+          printf '%s\n' "$img" "$commit" "$cc" "$base"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+        echo "Cache key: ${img}${{ steps.inputs.outputs.inputs_hash }}"
+
     # The key embeds the runner image version (`img<version>`) because vcpkg's
     # per-package ABI hash includes the compiler hash. When GitHub bumps the
     # runner image (and with it MSVC/gcc), the old binary archives become ABI
@@ -161,11 +231,8 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-${{ steps.inputs.outputs.inputs_hash }}
-        restore-keys: |
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
+        key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.restore-keys }}
 
     # Reader jobs (cache-write=false) restore only — no post-save — so a subset
     # build cannot overwrite the shared key with an incomplete cache.
@@ -174,11 +241,8 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-${{ steps.inputs.outputs.inputs_hash }}
-        restore-keys: |
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-img${{ steps.img.outputs.version }}-
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-${{ steps.resolve.outputs.commit }}-
-          vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-
+        key: ${{ steps.key.outputs.key }}
+        restore-keys: ${{ steps.key.outputs.restore-keys }}
 
     - name: Clone vcpkg
       shell: bash
