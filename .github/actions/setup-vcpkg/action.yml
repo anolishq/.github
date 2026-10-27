@@ -127,8 +127,8 @@ runs:
             || { echo "::error::compiler '$word' (from \$CC/\$CXX or the cc/c++ default) is not on PATH; install it before this step" >&2; return 1; }
           echo "$path"
         }
-        cc="$(resolve "cc")"
-        cxx="$(resolve "c++")"
+        cc="$(resolve "${CC:-cc}")"
+        cxx="$(resolve "${CXX:-c++}")"
         c_hash="$(sha1sum "$cc" | cut -d' ' -f1)"
         cxx_hash="$(sha1sum "$cxx" | cut -d' ' -f1)"
         hash="$(printf '%s%s' "$c_hash" "$cxx_hash" | sha1sum | cut -d' ' -f1)"
