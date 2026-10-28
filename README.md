@@ -1,98 +1,167 @@
 # anolishq/.github
 
-Org-level shared workflows and configuration for all anolishq repositories.
+Shared reusable workflows, composite actions and configuration for the
+anolishq repositories.
 
 ## Versioning
 
-Consumers pin these shared workflows/actions to a commit SHA tagged **`v2`**:
+Pin a shared workflow or action to a commit SHA, with the tag it tracks as a
+comment:
 
 ```yaml
-uses: anolishq/.github/.github/actions/setup-vcpkg@<sha> # v2
+uses: anolishq/.github/.github/workflows/docs-check.yml@<sha> # v2
 ```
 
-The `# v2` comment tells Renovate to track the **`v2` tag** — so a pin only
-moves when `v2` is deliberately re-tagged (a release), **not** on every push to
-`main`. Do **not** pin internal refs to `@<sha> # main`: that makes Renovate
-re-pin on every `.github` commit, which churns PRs across the org.
+Renovate reads the comment and re-pins the SHA when that tag moves. Do not pin
+to `@<sha> # main`: Renovate would then re-pin on every commit to `main` and
+open PRs across the org.
 
-**Cutting a release:** for a backward-compatible change, move the `v2` tag to
-the new `main` SHA (`git tag -f v2 <sha> && git push -f origin v2`); for a
-breaking change, cut `v3` and migrate consumers. Renovate then bumps the
-SHA-pins to the new tag SHA (held 3 days by the supply-chain soak).
+The tags:
 
-## Reusable Workflows
+| Tag | Kind | Used for |
+| --- | --- | --- |
+| `v2` | Moving | Most workflows and actions |
+| `v2.N` | Annotated, immutable | A specific release; `setup-vcpkg` is pinned `# v2.5` |
+| `clang-tidy-diff` | Moving | `clang-tidy-diff.yml` |
+| `setup-clang-tools` | Moving | The `setup-clang-tools` action |
+
+The shared Renovate preset,
+[`anolishq/renovate-config`](https://github.com/anolishq/renovate-config/blob/main/default.json),
+holds third-party GitHub Actions for 3 days but applies no hold to
+`anolishq/.github`. Non-major updates to it, including SHA re-pins, automerge
+once CI passes. A major update, such as `v2` to `v3`, opens a PR for review.
+
+### Cutting a release
+
+For a backward-compatible change, tag the new `main` commit as the next
+`v2.N` and move `v2` to it:
+
+```bash
+git tag -a v2.<N> -m "v2.<N>" <sha>
+git push origin v2.<N>
+git tag -f v2 <sha>
+git push -f origin v2
+```
+
+A tag ruleset blocks deleting or force-pushing any `v*.*` tag, so check the
+SHA before pushing `v2.N`; see [Branch protection](#branch-protection).
+
+For a breaking change, cut `v3` and migrate the consumers.
+
+## Reusable workflows
+
+In the examples, `<sha>` is the commit the tag points at.
 
 ### docs-check.yml
 
-Validates documentation on PRs and pushes:
-
-- **Markdown lint** — style and formatting checks
-- **VitePress build** — catches Vue template parsing errors before they break the docs site
-- **Link check** — fails on dead local links (lychee, offline)
+Checks a repo's documentation. The repos with published docs that call it
+(anolis, anolis-protocol, the providers, anolis-workbench and fluxgraph) run it
+from their `ci.yml` as a `docs` job listed in the `needs` of the `ok`
+aggregator, so a failure blocks the merge. For example, in
+[`anolis`](https://github.com/anolishq/anolis/blob/main/.github/workflows/ci.yml):
 
 ```yaml
-# .github/workflows/docs.yml
-name: Docs
-on: [push, pull_request]
 jobs:
-  check:
+  docs:
+    name: Docs
     uses: anolishq/.github/.github/workflows/docs-check.yml@<sha> # v2
+
+  ok:
+    name: ok
+    if: always()
+    needs:
+      - docs
+      # ...the repo's other jobs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any required job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
 ```
+
+A repo may gate the `docs` job on a path filter. A skipped job does not fail
+`ok`.
+
+Its jobs:
+
+| Job | What it checks |
+| --- | --- |
+| Markdown Lint | markdownlint-cli2 over `markdownlint-globs` |
+| VitePress Build | The docs build with VitePress, which catches Vue template parse errors |
+| Link Check | lychee `--offline` over `docs/**/*.md` and `*.md`: local links only |
+| Snippet Validation | YAML and JSON blocks against JSON Schemas; opt-in, see below |
 
 Inputs:
 
 | Input | Default | Description |
-| ----- | ------- | ----------- |
-| `docs-path` | `docs` | Path to docs directory |
+| --- | --- | --- |
+| `docs-path` | `docs` | Docs directory copied into the VitePress build |
 | `markdownlint-globs` | `docs/**/*.md`, `README.md`, `CONTRIBUTING.md` | Files to lint |
-| `skip-vitepress` | `false` | Skip VitePress build check |
-| `skip-link-check` | `false` | Skip local dead-link check |
+| `skip-vitepress` | `false` | Skip the VitePress build |
+| `skip-link-check` | `false` | Skip the local link check |
 
-### metrics.yml
+#### Snippet validation
 
-Collects repository metrics (runs on main, not PRs):
+The job runs `scripts/validate_doc_snippets.py` at the commit the caller pins.
+It does nothing unless the repo has a `doc-schemas.json` at its root, which
+names each schema by a local `path` or a `url`, with an optional JSON
+`pointer` to the schema inside the file:
 
-- tokei (lines of code by language)
-- cloc (detailed code statistics)
-- tree (directory structure)
-
-```yaml
-# .github/workflows/metrics.yml
-name: Metrics
-on:
-  push:
-    branches: [main]
-jobs:
-  collect:
-    uses: anolishq/.github/.github/workflows/metrics.yml@main
+```json
+{
+  "schemas": {
+    "runtime-config": { "path": "schemas/runtime/runtime-config.schema.json" },
+    "sim-config": { "url": "https://example.com/sim-config-schema.json", "pointer": "/schema" }
+  }
+}
 ```
+
+It checks the published docs: `README.md` and `docs/**/*.md`, minus the names
+in `docs/.indexignore`. Once a repo opts in, every `yaml`, `yml` or `json`
+fenced block in them needs a `validate` comment as the nearest non-blank line
+above it. A block without one fails. The forms:
+
+```text
+<!-- validate: runtime-config -->                              a complete document
+<!-- validate: runtime-config fragment -->                     the schema's root `required` is dropped
+<!-- validate: runtime-config pointer=/properties/providers --> validate against a subschema
+<!-- validate: none -->                                        not a config example
+```
+
+A block's top-level keys must also be declared in the schema's `properties`,
+even where the schema allows other keys. The runtime's loader only warns on an
+unknown key, so a misspelled key would otherwise pass.
+
+The script exits 1 when a block fails or has no annotation, and 2 on bad input:
+an unknown schema name, an unreadable schema or a malformed annotation.
+
+Renovate moves a schema `url` of the form
+`https://raw.githubusercontent.com/anolishq/<repo>/v<x.y.z>/...` to that
+repo's latest release.
 
 ### version-sync.yml
 
-Fails when the version strings a repo keeps in several files disagree. It
-runs `scripts/assert_version_sync.py` against the repo's
-`version-locations.txt`.
+Fails when the version strings a repo keeps in several files disagree. It runs
+`scripts/assert_version_sync.py`, at the commit the caller pins, against the
+repo's `version-locations.txt`.
 
 ```yaml
 jobs:
   version-sync:
     uses: anolishq/.github/.github/workflows/version-sync.yml@<sha> # v2
-    with:
-      python-version: '3.12'
-      working-directory: '.'
 ```
 
 Inputs:
 
 | Input | Default | Description |
-| ----- | ------- | ----------- |
+| --- | --- | --- |
 | `python-version` | `3.12` | Python used to run the script |
-| `working-directory` | `.` | Directory holding `version-locations.txt`; tracked paths resolve from it. Only `.` works: the script path `_github/scripts/...` resolves from this directory too |
+| `working-directory` | `.` | Directory holding `version-locations.txt`. Only `.` works: the script path `_github/scripts/...` resolves from this directory too |
 
-`version-locations.txt` has one `path:regex` entry per line. Blank lines and
-lines starting with `#` are skipped. The line splits at its first `:`, so
-the path cannot contain one and the regex can. The regex is searched in the
-file with `re.MULTILINE`, and its first capture group is the version:
+`version-locations.txt` has one `path:regex` line per location. Blank lines
+and lines starting with `#` are skipped. The line splits at its first `:`, so
+the path cannot contain one and the regex can. The regex's first capture group
+is the version:
 
 ```text
 # version-locations.txt
@@ -100,23 +169,55 @@ CMakeLists.txt:project\(.* VERSION ([0-9]+\.[0-9]+\.[0-9]+)
 vcpkg.json:"version": "([0-9]+\.[0-9]+\.[0-9]+)"
 ```
 
-The script exits 1 when the versions differ, and 2 on a configuration
-error: `version-locations.txt` missing or malformed, a tracked file missing,
-or a regex with no match.
+Every match of every line is checked, with `re.MULTILINE`, so a file may hold
+the version several times or be listed twice.
 
-The script runs at the commit the caller pins. The workflow checks this
-repo out at `job.workflow_sha`, the commit of the workflow file that defines
-the job, so a `@<sha> # v2` pin runs that commit's script and a change on
-`main` reaches callers only when `v2` moves. A pin to a commit older than
-this checkout `ref` still runs `main`'s script.
+A line that starts with `group|` is checked against the other lines of that
+group instead of the repo's own version. Use it for a doc that mirrors a
+dependency pin:
+
+```text
+protocol|CMakeLists.txt: GIT_TAG v([0-9.]+)
+protocol|docs/providers.md: protocol v([0-9.]+)
+```
+
+The script exits 1 when any group's versions differ, and 2 on bad input: no
+`version-locations.txt`, a malformed or empty one, a tracked file missing, or
+a regex with no match.
+
+### metrics.yml
+
+Collects repository metrics with tokei, cloc and tree, and uploads them as a
+`metrics-<repo>-<run number>` artifact kept for 90 days. The job summary shows
+the tokei table.
+
+```yaml
+# .github/workflows/metrics.yml
+name: Metrics
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  collect:
+    uses: anolishq/.github/.github/workflows/metrics.yml@<sha> # v2
+```
+
+`exclude-dirs` takes comma-separated directories to skip. A release workflow
+passes `tag: ${{ github.ref_name }}`, which is written to `metrics.json` (the
+short SHA by default); the `metrics-json-path` output gives that file's path.
 
 ### valgrind-leak.yml
 
-Reusable memory-leak check for the C/C++ repos: builds a target (vcpkg + a
-CMake preset) and runs a chosen command under `valgrind --leak-check=full`,
-applying a repo-provided suppressions file. **Advisory by default** (the job
-succeeds, surfacing the leak summary + a `valgrind-log` artifact); set
-`enforce: true` to fail on "definitely lost".
+Builds a target with vcpkg and a CMake preset, then runs a command under
+`valgrind --leak-check=full`. Only "definitely lost" counts as a leak.
+"Possibly lost" and "still reachable" are reported and ignored.
+
+The job is advisory by default: it succeeds and puts the leak summary in the
+job summary and a `valgrind-log-<preset>` artifact. Set `enforce: true` to fail
+on a definite leak.
 
 ```yaml
 jobs:
@@ -124,36 +225,35 @@ jobs:
     uses: anolishq/.github/.github/workflows/valgrind-leak.yml@<sha> # v2
     with:
       build-preset: ci-linux-release
-      build-target: anolis-runtime          # optional, faster than building all
+      build-target: anolis-runtime      # optional; faster than the whole preset
       run: "build/ci-linux-release/core/anolis-runtime --check-config test.yaml"
-      # duration: "30s"                      # for long-running binaries (sends SIGINT, then leak-checks)
-      # suppressions: valgrind.supp          # applied when present
-      # enforce: true                        # fail on definitely-lost
+      # duration: "30s"                 # long-running binaries: send SIGINT after this
+      # suppressions: valgrind.supp     # the default; applied when present
+      # enforce: true
 ```
 
-vcpkg / gRPC / protobuf / abseil produce well-documented valgrind false
-positives, so each consumer checks in its own **`valgrind.supp`**; the first run
-per repo is a triage pass — the workflow runs with `--gen-suppressions=all`, so
-the artifact contains ready-to-paste suppression blocks. Only **"definitely
-lost"** is treated as a failure; "possibly lost" / "still reachable" (library
-static/TLS allocations) are reported but ignored.
+Other inputs: `triplet` (default `x64-linux-static`), `signal` (default
+`INT`), `manifest-dir` (default `.`).
+
+vcpkg, gRPC, protobuf and abseil produce known false positives, so each repo
+checks in its own `valgrind.supp`. Valgrind runs with `--gen-suppressions=all`,
+so the log artifact holds suppression blocks ready to paste.
 
 ### fuzz.yml
 
-Reusable [libFuzzer](https://llvm.org/docs/LibFuzzer.html) runner for the C/C++
-repos. Builds a repo's fuzz targets with **Clang**
-(`-fsanitize=fuzzer,address`) and runs each for a bounded time against
-its checked-in corpus. This is a short **regression** run, not a soak — keep
-`max-total-time` small. Advisory by default (crashes surface in the summary + a
-`fuzz-crashes` artifact); `enforce: true` fails on a crash.
+Builds a repo's [libFuzzer](https://llvm.org/docs/LibFuzzer.html) targets with
+Clang (`-fsanitize=fuzzer,address`) and runs each for a bounded time against its checked-in corpus. It is a
+short regression run, not a soak: keep `max-total-time` small. Advisory by
+default; crashes appear in the job summary and a `fuzz-crashes` artifact, and
+`enforce: true` fails the job on a crash.
 
-Two pieces:
+A repo needs:
 
-1. **`templates/AddFuzzTarget.cmake`** — copy into the consumer repo (e.g.
-   `cmake/AddFuzzTarget.cmake`), gate behind `option(ENABLE_FUZZING ...)`, and
-   declare targets with `anolis_add_fuzz_target(NAME ... SOURCES ... LINK ...)`.
-   A harness only defines `LLVMFuzzerTestOneInput`; libFuzzer provides `main()`.
-2. **A `ci-fuzz` CMake preset** (Clang + `ENABLE_FUZZING=ON`) the workflow configures.
+- `templates/AddFuzzTarget.cmake`, copied into the repo (for example
+  `cmake/AddFuzzTarget.cmake`) and included behind `option(ENABLE_FUZZING ...)`.
+  Declare targets with `anolis_add_fuzz_target(NAME ... SOURCES ... LINK ...)`.
+  A harness defines only `LLVMFuzzerTestOneInput`; libFuzzer provides `main()`.
+- A CMake preset that uses Clang and sets `ENABLE_FUZZING=ON`.
 
 ```yaml
 jobs:
@@ -162,29 +262,28 @@ jobs:
     with:
       build-preset: ci-fuzz
       fuzz-binaries: "build/ci-fuzz/fuzz/fuzz_config build/ci-fuzz/fuzz/fuzz_frame"
-      corpus-root: fuzz/corpus      # per-target subdir by binary basename
+      corpus-root: fuzz/corpus      # one subdirectory per binary name
       max-total-time: "60"          # seconds per target
-      # enforce: true               # fail on crash
+      # enforce: true
 ```
+
+Other inputs: `triplet` (default `x64-linux-static`), `manifest-dir` (default
+`.`).
 
 ### clang-tidy-diff.yml
 
-Reusable clang-tidy gate for the vcpkg-based C++ repos. It runs the pinned
-clang-tidy 18.1.8 (from `setup-clang-tools`) over **only the lines a PR
-changes**, using upstream `clang-tidy-diff.py` and the repo's own
-`.clang-tidy`. Findings appear as annotations on the PR diff and in the job
-summary. The job configures and builds the preset first, because clang-tidy
-needs `compile_commands.json` and the generated protobuf headers.
+Runs the pinned clang-tidy 18.1.8, with the repo's `.clang-tidy`, over only
+the lines a PR changes. Findings appear as annotations on the PR diff and in
+the job summary. The job configures and builds the preset first, because
+clang-tidy needs `compile_commands.json` and any generated headers.
 
-**Advisory by default.** With `blocking: true` the job fails when a finding
-lands on a changed line; list the job in the repo's `ok` aggregator so that
-failure gates the merge. Lines a PR does not touch are not linted, so existing
-findings elsewhere never block it. In either mode the job fails when a PR
-changes C/C++ sources and clang-tidy could not check them: no
-`compile_commands.json` or one with no entries, a crash, or a clang-tidy
-that cannot start.
+It is advisory by default. With `blocking: true` a finding on a changed line
+fails the job; list it in the repo's `ok` aggregator so that blocks the merge.
+In either mode the job fails when a PR changes C/C++ sources and clang-tidy
+could not check them: no `compile_commands.json`, one with no entries, a crash,
+or a clang-tidy that cannot start.
 
-The workflow is not in `v2`: callers pin it to the **`clang-tidy-diff`** tag.
+Callers pin it to the `clang-tidy-diff` tag:
 
 ```yaml
 jobs:
@@ -195,14 +294,14 @@ jobs:
     with:
       configure-preset: ci-linux-tidy
       triplet: x64-linux          # the repo's CI triplet
-      apt-packages: graphviz      # preset build deps vcpkg does not provide
+      apt-packages: graphviz      # build deps vcpkg does not provide
       blocking: true
 ```
 
 Inputs:
 
 | Input | Default | Description |
-| ----- | ------- | ----------- |
+| --- | --- | --- |
 | `configure-preset` | (required) | CMake configure preset; must export `compile_commands.json` to `build/<preset>` |
 | `build-preset` | `configure-preset` | Build preset run before linting, to generate headers |
 | `triplet` | `x64-linux-static` | vcpkg triplet; must match the repo's CI triplet |
@@ -210,33 +309,22 @@ Inputs:
 | `blocking` | `false` | Fail the job on a finding on a changed line |
 | `apt-packages` | empty | Space-separated apt packages installed before configuring |
 
-What a caller must satisfy:
+What a caller must get right:
 
-- **The configure preset must keep the default `binaryDir`,
-  `build/<presetName>`, and set `CMAKE_EXPORT_COMPILE_COMMANDS=ON`.** The gate
-  reads the database from `build/<configure-preset>`, and fails before running
-  clang-tidy when there is none, because clang-tidy would otherwise lint each
-  changed file with no build flags. A repo whose main
-  preset overrides `binaryDir` adds a tidy preset that keeps the default —
-  fluxgraph's `ci-linux-release-server` writes to `build-server/`, so its gate
-  uses `ci-linux-tidy`. Enable every optional component in that preset, so all
-  of the repo's sources are in the database.
-- **`triplet` must match the repo's CI triplet**, or the gate misses the warm
-  vcpkg cache and rebuilds the dependency set from source; in fluxgraph, gRPC
-  built cold hit the job's 30-minute timeout. Pass build dependencies that vcpkg
-  does not provide in `apt-packages` (fluxgraph's diagram tool needs
-  `graphviz`).
-- **A changed header is linted with a borrowed compile command.** Headers have
-  no entry in `compile_commands.json`, so clang-tidy uses the command of the
-  translation unit it judges closest by file name and path. If that unit belongs
-  to a target without the header's include root — a generated `*.pb.cc`, for
-  example — the header's full-path includes fail with
-  `clang-diagnostic-error: file not found`. A `.cpp` in the header's own target,
-  beside it or with the same file name, is the match clang-tidy picks, which is
-  one reason the repos keep headers beside their `.cpp` under `src/`. A
-  directory of headers with no `.cpp`, such as fluxgraph's
-  `include/fluxgraph/transform/`, depends on which unit gets picked. Check a new
-  one locally before relying on the gate:
+- **The configure preset keeps the default `binaryDir`, `build/<presetName>`,
+  and sets `CMAKE_EXPORT_COMPILE_COMMANDS=ON`.** The job reads the database
+  from `build/<configure-preset>`. A repo whose main preset overrides
+  `binaryDir` adds a tidy preset that keeps it, with every optional component
+  enabled so all sources are in the database.
+- `triplet` matches the repo's CI triplet. Otherwise the job misses the warm
+  vcpkg cache, builds the dependencies from source, and can hit its 30-minute
+  timeout.
+- A changed header borrows the compile command of the translation unit
+  clang-tidy judges closest by name and path. If that unit lacks the header's
+  include root, such as a generated `*.pb.cc`, the header's includes fail with
+  `clang-diagnostic-error: file not found`. A `.cpp` beside the header or with
+  the same name avoids this. Check a directory of headers with no `.cpp`
+  locally before relying on the gate:
 
   ```bash
   cmake --preset <preset>
@@ -244,170 +332,148 @@ What a caller must satisfy:
   clang-tidy -p build/<preset> path/to/new_dir/header.hpp
   ```
 
-## Shared Configuration
+### dependency-scan.yml
 
-### .markdownlint.json
-
-Shared markdownlint configuration fetched by `docs-check.yml`, at the
-commit the caller pins (`job.workflow_sha`). It is fetched only when the
-caller has no markdownlint config of its own: `.markdownlint.jsonc`, `.json`,
-`.yaml`, `.yml`, `.cjs` or `.mjs`, or a `.markdownlint-cli2.*` file. A
-failed download fails the job.
-
-- Every rule enabled (`"default": true`) except line length
-  (`"MD013": false`)
-- Inline HTML (MD033) is flagged; a caller that needs it disables MD033 in
-  its own config
-
-### Provider lint/format templates
-
-Shared C++ formatting/lint config for the device providers (ezo/sim/bread), kept
-consistent with the anolis runtime. Copy each into the consumer repo root:
-
-| Template | Copy to | Purpose |
-| --- | --- | --- |
-| `templates/clang-format` | `.clang-format` | clang-format 18 style (Google base, 120 cols, 4-space indent). |
-| `templates/clang-tidy` | `.clang-tidy` | High-signal checks (diagnostic/analyzer/bugprone/performance; readability off). Adjust `HeaderFilterRegex` to the repo's source roots. |
-| `templates/editorconfig` | `.editorconfig` | Editor defaults aligned with `.clang-format` (4-space C++, LF, trim trailing). |
-| `templates/provider.justfile` | `justfile` | Task runner (`setup`, `fmt`, `fmt-check`, `lint`, `check`, `test`). `fmt`/`fmt-check`/`lint` call `clang-format`/`clang-tidy` on PATH. Set `preset` to the repo's primary CMake preset. |
-
-#### Pinned formatter/linter (single source of truth)
-
-clang-format output is version-sensitive, so the org pins **one exact build**
-and runs it everywhere. The pin is a **SHA-512-verified static LLVM 18.1.8
-binary** (from `muttleyxd/clang-tools-static-binaries`, tag `master-796e77c`) —
-**not** an apt package (which drifts: Debian's `clang-format-18` is 18.1.8 but
-Ubuntu noble's is 18.1.3, and they format differently) and **not** a pip/npm/conda
-wheel.
-
-- **CI** installs it via the [`setup-clang-tools`](.github/actions/setup-clang-tools)
-  composite action (pin the action by SHA, like `setup-vcpkg`); the format gate is
-  then a `cpp-format` job running `just fmt-check`.
-- **Dev boxes / editors** install the same SHA-pinned binary the action uses
-  (`muttleyxd/clang-tools-static-binaries`, LLVM 18.1.8), so format-on-save
-  matches CI byte-for-byte.
-- **Repos** stay tool-agnostic: the `justfile` just calls `clang-format` / `clang-tidy`
-  on `PATH`. To bump the version, update `setup-clang-tools` + `apps/clang-tools`
-  together (and reformat the tree in the same change).
-
-This replaces the earlier apt / `pipx run clang-format==18.1.8` / pre-commit gates
-(see [#69](https://github.com/anolishq/.github/issues/69)) — pre-commit's
-`mirrors-clang-format` was a `pip install clang-format` wheel under the hood, which
-didn't meet the no-pip goal.
-
-## Dependency scanning
-
-`dependency-scan.yml` is a reusable workflow that scans a repo's **vcpkg**
-C/C++ dependency set for known CVEs. It runs on a schedule (and manual
-dispatch), is **non-blocking** (never fails a build), and surfaces findings as
-a job summary plus an uploaded report artifact.
+Scans a repo's vcpkg dependency set for known CVEs. Call it on a schedule.
+Findings never fail the build; they go to the job summary and a
+`cve-report-<triplet>` artifact. A failed vcpkg install, a failed tool install
+or the 90-minute timeout still fails the job.
 
 ```yaml
-# .github/workflows/dependency-scan.yml in a consuming repo
+# .github/workflows/dependency-scan.yml
 name: Dependency Scan
 on:
-  schedule: [{ cron: "0 7 * * 1" }] # Mondays 07:00 UTC
+  schedule:
+    - cron: "0 7 * * 1" # Mondays 07:00 UTC
   workflow_dispatch:
-permissions: { contents: read }
+permissions:
+  contents: read
 jobs:
   scan:
-    uses: anolishq/.github/.github/workflows/dependency-scan.yml@<sha> # main
+    uses: anolishq/.github/.github/workflows/dependency-scan.yml@<sha> # v2
     with:
-      triplet: x64-linux-static   # x64-linux for repos using the built-in triplet
+      triplet: x64-linux-static   # x64-linux for repos on the built-in triplet
       # features: "tests;json;yaml;server"   # only if deps are feature-gated
 ```
 
-No secrets or API keys are required.
+Other inputs: `overlay-triplets` (default `triplets`, used when the directory
+exists), `manifest-dir` (default `.`), `cve-bin-tool-ref`. No secrets are
+needed.
 
-### NVD data source (keyless)
+vcpkg's SBOMs carry no CPE or purl, so generic SBOM scanners cannot match
+them. The workflow installs the dependency set with vcpkg, reads each port's
+version from its `vcpkg.spdx.json`, and maps the port to an NVD vendor and
+product through a table in the workflow. Add an entry there when a repo gains
+a dependency. It then runs
+[`cve-bin-tool`](https://github.com/ossf/cve-bin-tool) twice: a version lookup
+of the mapped ports, and a binary scan of the installed tree, which catches
+linked libraries such as openssl and zlib. NVD data comes from the keyless
+cveb.in mirror.
 
-The scan matches dependency versions against the **National Vulnerability
-Database**, pulled from the keyless **cveb.in mirror** (FCIX-backed: no API key,
-no rate limit, refreshed several times daily). NVD's own API returns `503` to
-GitHub-hosted runner IPs even with a key, so the mirror is the reliable source
-from CI. `cve-bin-tool` is pinned to a `main` commit because the fix to read the
-live NVD **2.0** feed (the released 3.4 uses the retired, empty 1.1 feed) is not
-in any release yet. The job summary reports the loaded CVE count and **flags
-INCOMPLETE if the mirror ever fails to populate** — so an empty result is never
-mistaken for a clean bill of health.
+**An empty result is not a clean result when the NVD data did not load.** The
+summary prints how many CVEs the database loaded, and marks coverage
+INCOMPLETE when it is under 100,000.
 
-### How it works
+Each finding row gives product, version, CVE, severity and score, with the
+version vcpkg resolved. Confirm the CVE applies, then fix it by moving the
+vcpkg baseline or port version.
 
-vcpkg pins dependency versions via the registry baseline (not `vcpkg.json`),
-and its SPDX SBOMs carry no CPE/purl, so generic SBOM scanners
-(OSV-Scanner/Trivy/Grype) can't match them. Instead the workflow:
+## External link check
 
-1. installs the resolved dependency set with vcpkg;
-2. reads exact versions from the per-port `vcpkg.spdx.json` SBOMs and maps each
-   vcpkg port to its NVD `vendor,product` via a small curated table in the
-   reusable workflow (extend it when a new dependency is introduced);
-3. runs [`cve-bin-tool`](https://github.com/intel/cve-bin-tool) two ways — a
-   **version lookup** (`--input-file`, matches resolved versions against the
-   *full* NVD database, covering C++ libs with no binary checker) and a
-   **binary scan** (fingerprints compiled libraries, catching linked/transitive
-   libs like openssl, zlib, c-ares).
+`external-links.yml` checks the external links in `docs/**/*.md` and
+`README.md` on the default branch of each repo in its `REPOS` list, with the
+settings in [`lychee.toml`](lychee.toml). Add a public repo to `REPOS` when it
+gains published docs. Code blocks are not checked. It runs on Sundays at 06:00
+UTC and on demand.
 
-### Reading and triaging findings
+It gates nothing. A run with broken links opens or updates one issue in this
+repo, "Broken external links in published docs", and a clean run closes it. A
+PR that changes the workflow or `lychee.toml` runs the check and only
+reports.
 
-- Open the run → **Summary** for the two finding tables, or download the
-  **`cve-report-*`** artifact for the full JSON/HTML.
-- Each row is `product · version · CVE · severity · score`. The version is the
-  vcpkg-resolved one actually shipped; confirm the CVE's applicability.
-- **Remediate** by bumping the vcpkg baseline / port version (Renovate proposes
-  these) so the fixed version is pulled.
-- **False positives** can be suppressed with a cve-bin-tool triage file checked
-  into the repo (see cve-bin-tool's `--triage-input-file`).
+## Shared configuration
+
+### .markdownlint.json
+
+docs-check fetches this file, at the commit the caller pins, when the caller
+has no markdownlint config of its own: `.markdownlint.jsonc`, `.json`,
+`.yaml`, `.yml`, `.cjs` or `.mjs`, or a `.markdownlint-cli2.*` file. A failed
+download fails the job.
+
+It enables every rule except line length (MD013). Inline HTML (MD033) is
+flagged; a repo that needs it disables MD033 in its own config.
+
+### Templates
+
+C++ formatting and lint config for the device providers. The formatting and
+the clang-tidy check set match the anolis runtime; the runtime also promotes
+every clang-tidy finding to an error (`WarningsAsErrors: "*"`), which the
+template does not. Copy each into the repo root:
+
+| Template | Copy to | Purpose |
+| --- | --- | --- |
+| `templates/clang-format` | `.clang-format` | Google base, 120 columns, 4-space indent |
+| `templates/clang-tidy` | `.clang-tidy` | bugprone, performance, analyzer and diagnostic checks; readability off. Set `HeaderFilterRegex` to the repo's source roots |
+| `templates/editorconfig` | `.editorconfig` | Editor defaults that match `.clang-format` |
+| `templates/provider.justfile` | `justfile` | `setup`, `fmt`, `fmt-check`, `lint`, `check`, `test`. Set `preset` to the repo's main CMake preset |
+| `templates/AGENTS.md` | `AGENTS.md` | Per-repo notes for coding agents |
+
+### Pinned clang tools
+
+clang-format output differs between builds: Debian's `clang-format-18` is
+18.1.8, Ubuntu noble's is 18.1.3, and they format differently. So the org runs
+one build everywhere: static LLVM 18.1.8 binaries from
+[`muttleyxd/clang-tools-static-binaries`](https://github.com/muttleyxd/clang-tools-static-binaries),
+tag `master-796e77c`, verified by SHA-512. Do not install clang-format from
+apt, pip or pre-commit.
+
+- In CI, the
+  [`setup-clang-tools`](.github/actions/setup-clang-tools/action.yml) action
+  installs `clang-format` on `PATH`, on Linux x86-64 runners only. With
+  `tidy: "true"` it also installs `clang-tidy`, its builtin headers,
+  `run-clang-tidy` and `clang-tidy-diff`. Pin it to the `setup-clang-tools`
+  tag.
+- On a dev box, install the same binaries with the same SHA-512s.
+- A repo's `justfile` calls `clang-format` and `clang-tidy` from `PATH`. To
+  change the version, update the action and reformat the tree in one change.
 
 ## Branch protection
 
-Every repo's `main` is protected with one canonical classic ruleset: a
-single required status check named `ok` (the final aggregator job each
-repo's `ci.yml` exposes), `strict` up-to-date merges, admins included, no
-force-pushes or deletions, and PRs required (0 approvals). Each repo's
-immutable release tags are additionally protected against deletion and
-force-push via a per-repo ruleset (`protect-version-tags`) — the classic
-tag-protection API was retired by GitHub, so this is a repository ruleset,
-which is free on public repos. The ruleset targets **dotted** tags
-(`refs/tags/v*.*`, e.g. `v2.4`, `v0.2.7`) so the *moving* bare-major aliases
-(`v1`/`v2`, which the release flow re-points with `git tag -f`) stay mutable.
+`scripts/apply-branch-protection.sh` applies the same settings to every repo
+in its `REPOS` list:
 
-The same script also asserts the canonical **repository settings**:
-`delete_branch_on_merge` and `allow_auto_merge`, both `true`. These are not
-cosmetic. Renovate delegates merges to GitHub via `platformAutomerge`, so
-GitHub is what deletes the head branch — and with `delete_branch_on_merge`
-off, branch names that recur forever (`renovate/lock-file-maintenance`,
-`renovate/python-dev-tooling` …) survive their own merge, get reused, and
-wedge Renovate into `Detected empty commit - aborting git push` → duplicate
-PRs that squash-merge empty → `PR Edited (Blocked)`, which silently kills lock
-file maintenance for that repo. GitHub has no org-level default for it, so it
-drifts per repo. See anolishq/.github#113.
-
-Org-level rulesets would let us define this once, but they require GitHub
-Team; on the Free plan the equivalent is `scripts/apply-branch-protection.sh`,
-which holds the canonical config and applies it to every `ok`-bearing repo.
+- Classic protection on `main`: one required status check, `ok` (the
+  aggregator job in the repo's `ci.yml`), branches up to date before merge,
+  admins included, PRs required with no approvals, no force-pushes or
+  deletions.
+- A ruleset, `protect-version-tags`, that blocks deleting or force-pushing
+  tags matching `refs/tags/v*.*`. The moving tags (`v1`, `v2`) have no dot, so
+  the release flow can still move them.
+- `allow_auto_merge` and `delete_branch_on_merge` set to `true`. Renovate's
+  automerge needs the first. Without the second, a Renovate branch whose name
+  recurs, such as `renovate/lock-file-maintenance`, survives its merge and
+  Renovate stops updating it.
 
 ```bash
-./scripts/apply-branch-protection.sh --dry-run  # preview
-./scripts/apply-branch-protection.sh            # apply / heal drift
+./scripts/apply-branch-protection.sh --dry-run  # list what it would protect
+./scripts/apply-branch-protection.sh            # apply, or heal drift
 ```
 
-The script classifies each repo as OK / SKIPPED (archived) / FAILED, exits
-non-zero only on a genuine failure, and prints a reconciliation report that
-flags any non-archived org repo not yet enrolled.
+It needs `gh` with admin rights on the org's repos. It reports each repo as
+OK, SKIPPED (archived) or FAILED, exits non-zero only on a failure, and lists
+public, non-archived org repos that are not enrolled. Add a repo to `REPOS`
+only once its CI has an `ok` job that runs on pull requests; otherwise no PR
+in it can merge.
 
-Run it after onboarding a new repo — once that repo's CI exposes an `ok`
-job, add it to the `REPOS` list in the script and re-run.
+### Self-healing
 
-### Self-healing (scheduled)
+`.github/workflows/branch-protection-heal.yml` runs the script on Wednesdays
+at 06:00 UTC and on demand. The default `GITHUB_TOKEN` cannot write branch
+protection or rulesets on other repos, so the workflow needs an admin token:
 
-`.github/workflows/branch-protection-heal.yml` runs the script weekly (and on
-`workflow_dispatch`) so drift is re-asserted automatically. Because the default
-`GITHUB_TOKEN` cannot write branch protection / rulesets on *other* repos, the
-workflow needs an admin-scoped PAT:
+1. Create a fine-grained PAT with Administration: read and write on all
+   anolishq repos, or a classic PAT with the `repo` scope.
+2. Store it in this repo as the secret `BRANCH_PROTECTION_PAT`.
 
-1. Create a **fine-grained PAT** with **Administration: read and write** on all
-   `anolishq` repos (or a classic PAT with the `repo` scope).
-2. Store it as a repo secret named **`BRANCH_PROTECTION_PAT`** in `anolishq/.github`.
-
-Without the secret the workflow fails fast with an actionable error rather than
-a confusing 403.
+Without the secret the workflow fails at its "Verify admin PAT is present"
+step, before touching any repo, with an error naming it.
