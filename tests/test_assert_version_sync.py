@@ -47,6 +47,16 @@ class VersionSyncTest(unittest.TestCase):
         rc, out = run({"a.txt": "version 1.2.3\n"}, "a.txt: version ([0-9.]+)\na.txt: nothing ([0-9.]+)\n")
         self.assertEqual(rc, 2, out)
 
+    def test_regex_without_a_capture_group_is_bad_input(self):
+        rc, out = run({"a.txt": "version 1.2.3\n"}, "a.txt: version [0-9.]+\n")
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("Traceback", out)
+
+    def test_invalid_regex_is_bad_input(self):
+        rc, out = run({"a.txt": "version 1.2.3\n"}, "a.txt: version ([0-9.]+\n")
+        self.assertEqual(rc, 2, out)
+        self.assertNotIn("Traceback", out)
+
     def test_missing_file_fails(self):
         rc, out = run({"a.txt": "version 1.2.3\n"}, "a.txt: version ([0-9.]+)\ngone.txt: v ([0-9.]+)\n")
         self.assertEqual(rc, 2, out)

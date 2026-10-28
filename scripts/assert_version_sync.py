@@ -14,7 +14,7 @@ pin from CMakeLists.txt:
     protocol|docs/providers.md: protocol v([0-9.]+)
 
 Exit codes: 0 all agree, 1 mismatch, 2 bad input (malformed line, missing
-file, or a regex with no match).
+file, an invalid regex or one with no capture group, or a regex with no match).
 """
 import re
 import sys
@@ -41,7 +41,15 @@ try:
                 print(f"Malformed line in version-locations.txt: {line}", file=sys.stderr)
                 sys.exit(2)
             path, regex = line.split(':', 1)
-            entries.append((group, path.strip(), regex.strip()))
+            regex = regex.strip()
+            try:
+                if re.compile(regex).groups < 1:
+                    print(f"Regex has no capture group for the version: {regex}", file=sys.stderr)
+                    sys.exit(2)
+            except re.error as exc:
+                print(f"Invalid regex in version-locations.txt: {regex}: {exc}", file=sys.stderr)
+                sys.exit(2)
+            entries.append((group, path.strip(), regex))
 except FileNotFoundError:
     print(f"version-locations.txt not found in {ROOT}", file=sys.stderr)
     sys.exit(2)
