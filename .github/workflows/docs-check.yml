@@ -152,3 +152,38 @@ jobs:
             *.md
           fail: true
           jobSummary: true
+
+  snippets:
+    name: Snippet Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Check for doc-schemas.json
+        id: optin
+        run: |
+          if [ -f doc-schemas.json ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No doc-schemas.json; snippet validation is not enabled in this repo."
+          fi
+
+      - name: Checkout org .github
+        if: steps.optin.outputs.enabled == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: anolishq/.github
+          ref: ${{ job.workflow_sha }}
+          path: _github
+
+      - name: Set up Python
+        if: steps.optin.outputs.enabled == 'true'
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Validate YAML and JSON blocks in the docs
+        if: steps.optin.outputs.enabled == 'true'
+        run: |
+          pip install jsonschema==4.25.1 pyyaml==6.0.3
+          python _github/scripts/validate_doc_snippets.py
