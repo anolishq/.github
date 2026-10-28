@@ -19,6 +19,10 @@ above it:
     <!-- validate: runtime-config pointer=/properties/providers -->   validate against a subschema
     <!-- validate: none -->                         not a config example
 
+Besides the schema itself, a block's top-level keys must be ones the schema
+declares in `properties`, even where the schema allows others: the runtime's
+loader only warns on an unknown key, so a misspelled one would pass.
+
 Exit codes: 0 all valid, 1 a block failed or has no annotation, 2 bad input
 (unknown schema name, unreadable schema, malformed annotation).
 """
@@ -149,7 +153,7 @@ def resolve_pointer(doc, pointer, what):
 
 
 def build_schema(spec, entries):
-    """Turn an annotation spec into (schema, label), or None for `none`."""
+    """Turn an annotation spec into a schema, or None for `none`."""
     words = spec.split()
     if not words:
         fail_input("empty validate annotation")
@@ -207,6 +211,13 @@ def main():
             for err in errors:
                 at = "/".join(str(p) for p in err.path) or "(root)"
                 problems.append(f"{where}: [{spec}] at {at}: {err.message}")
+            # A schema may tolerate unknown top-level keys (the runtime's loader
+            # only warns), but a doc example should not show one.
+            declared = schema.get("properties")
+            if isinstance(instance, dict) and isinstance(declared, dict):
+                for key in instance:
+                    if key not in declared:
+                        problems.append(f"{where}: [{spec}] top-level key '{key}' is not declared by the schema")
             checked += 1
 
     for p in problems:

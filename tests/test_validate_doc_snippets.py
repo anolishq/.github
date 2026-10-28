@@ -80,6 +80,18 @@ class SnippetTest(unittest.TestCase):
         rc, out = run({"docs/a.md": doc("cfg fragment", "yaml", "htttp:\n  port: 8080\n")})
         self.assertEqual(rc, 1, out)
 
+    def test_undeclared_top_level_key_fails_even_when_the_schema_allows_it(self):
+        lax = dict(SCHEMA, additionalProperties=True)
+        reg = {"schemas": {"lax": {"path": "schemas/lax.json"}}}
+        files = {"schemas/lax.json": json.dumps(lax),
+                 "docs/a.md": doc("lax fragment", "yaml", "htttp:\n  port: 8080\n")}
+        rc, out = run(files, reg)
+        self.assertEqual(rc, 1, out)
+        self.assertIn("htttp", out)
+        files["docs/a.md"] = doc("lax fragment", "yaml", "http:\n  port: 8080\n")
+        rc, out = run(files, reg)
+        self.assertEqual(rc, 0, out)
+
     def test_pointer_validates_a_subschema_with_refs(self):
         rc, out = run({"docs/a.md": doc("cfg pointer=/properties/providers", "yaml", "- id: sim0\n")})
         self.assertEqual(rc, 0, out)
