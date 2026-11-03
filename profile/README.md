@@ -17,6 +17,7 @@ and is the single path for control, from an HTTP API or a behavior tree.
 - [anolis](https://github.com/anolishq/anolis): the runtime, with its HTTP API and `install.sh`
 - [anolis-protocol](https://github.com/anolishq/anolis-protocol): ADPP and its conformance tests
 - [anolis-provider-sdk](https://github.com/anolishq/anolis-provider-sdk): C++ library the providers are built on
+- [anolis-provider-sdk-python](https://github.com/anolishq/anolis-provider-sdk-python): Python library for writing providers
 - [anolis-provider-sim](https://github.com/anolishq/anolis-provider-sim): simulated devices
 - [anolis-provider-bread](https://github.com/anolishq/anolis-provider-bread): provider for BREAD boards on the CRUMBS I2C bus
 - [anolis-provider-ezo](https://github.com/anolishq/anolis-provider-ezo): provider for Atlas Scientific EZO sensor circuits over I2C

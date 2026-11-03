@@ -32,6 +32,7 @@ env:
     anolis-provider-ezo
     anolis-provider-sim
     anolis-provider-sdk
+    anolis-provider-sdk-python
     anolis-workbench
     anolis-telemetry-export
     anolis-projects
