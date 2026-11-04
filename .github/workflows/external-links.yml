@@ -31,6 +31,8 @@ env:
     anolis-provider-bread
     anolis-provider-ezo
     anolis-provider-sim
+    anolis-provider-adafruit
+    anolis-provider-sparkfun
     anolis-provider-sdk
     anolis-provider-sdk-python
     anolis-workbench

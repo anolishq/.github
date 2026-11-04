@@ -54,11 +54,13 @@ REPOS=(
   anolis
   anolis-projects
   anolis-protocol
+  anolis-provider-adafruit
   anolis-provider-bread
   anolis-provider-ezo
   anolis-provider-sdk
   anolis-provider-sdk-python
   anolis-provider-sim
+  anolis-provider-sparkfun
   anolis-telemetry-export
   anolis-workbench
   anolishq.github.io
