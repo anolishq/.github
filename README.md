@@ -219,6 +219,14 @@ The job is advisory by default: it succeeds and puts the leak summary in the
 job summary and a `valgrind-log-<preset>` artifact. Set `enforce: true` to fail
 on a definite leak.
 
+With `enforce: true` the job also fails when valgrind wrote no leak summary,
+because then nothing was checked: the `run` command was not found or not
+executable, or valgrind was killed before the target finished. A target
+stopped by a `duration` signal valgrind can catch, such as the default `INT`
+or `TERM`, still gets a leak summary. `signal: KILL` kills valgrind itself, so
+it writes no leak summary and fails under `enforce`. Without `enforce` the job
+summary flags a missing leak summary and the job still passes.
+
 ```yaml
 jobs:
   leak-check:
@@ -392,6 +400,17 @@ cveb.in mirror.
 **An empty result is not a clean result when the NVD data did not load.** The
 summary prints how many CVEs the database loaded, and marks coverage
 INCOMPLETE when it is under 100,000.
+
+Both cve-bin-tool runs write a JSON and an HTML report even when they find
+nothing, so the artifact holds a record of a clean scan too. A summary section
+with no report says why: the version lookup was skipped because no dependency
+is mapped to an NVD product, or cve-bin-tool failed (with its exit status), or
+the scan step did not finish (skipped, timed out or cancelled). A report that
+is not valid JSON, or is valid JSON but neither a list nor an object whose
+`report` is a list, is flagged as unreadable, not read as clean. Each run's
+result is recorded as soon as it is known, so a timeout during the binary scan
+still shows the version lookup's result. When no run reported the database
+size, the summary says the size is unknown and marks coverage INCOMPLETE.
 
 Each finding row gives product, version, CVE, severity and score, with the
 version vcpkg resolved. Confirm the CVE applies, then fix it by moving the
