@@ -2,11 +2,11 @@ name: Clang-Tidy (diff)
 
 # Reusable changed-lines-only clang-tidy gate for the org's vcpkg-based C++ repos.
 #
-# Runs the PINNED clang-tidy (via setup-clang-tools) over ONLY the lines a PR
-# changes (upstream clang-tidy-diff.py), honoring the repo's .clang-tidy. New
-# findings surface as GitHub annotations on the PR diff plus a job summary.
-# On push it lints the pushed commits. schedule and workflow_dispatch runs have
-# no changed lines, so they lint nothing and say so; any other event fails.
+# Runs the PINNED clang-tidy (via setup-clang-tools) over ONLY the lines a pull
+# request or a push changes (upstream clang-tidy-diff.py), honoring the repo's
+# .clang-tidy. New findings surface as GitHub annotations (inline on a PR's
+# diff) plus a job summary. schedule and workflow_dispatch runs have no changed
+# lines, so they lint nothing and say so; any other event fails.
 #
 # Advisory by default (blocking: false) — findings never fail the job. Flip
 # blocking: true (and add the job to the repo's `ok` gate) to fail on new findings
@@ -99,6 +99,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           fail() {
@@ -109,7 +110,8 @@ jobs:
 
           # The commit to diff HEAD against: the PR's base branch, the commit
           # before the push, or the default branch for a push with no previous
-          # commit (a new branch). The checkout (fetch-depth: 0) already has
+          # commit that creates a new branch (the first push of the default
+          # branch itself has nothing to diff). The checkout (fetch-depth: 0) has
           # every branch. schedule and workflow_dispatch have no changed lines;
           # any other event fails rather than pass with nothing linted.
           case "$EVENT" in
@@ -122,6 +124,11 @@ jobs:
                 base=$BEFORE
               else
                 [ -n "$DEFAULT_BRANCH" ] || fail "No previous commit or default branch for this push, so the changed lines were not checked."
+                if [ "$REF_NAME" = "$DEFAULT_BRANCH" ]; then
+                  printf '## clang-tidy (changed lines)\nSkipped: this is the first push of %s, so there is nothing to diff against and nothing was linted.\n' \
+                    "$DEFAULT_BRANCH" >> "$GITHUB_STEP_SUMMARY"
+                  exit 0
+                fi
                 base="origin/${DEFAULT_BRANCH}"
               fi
               ;;
