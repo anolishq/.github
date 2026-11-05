@@ -374,6 +374,12 @@ cveb.in mirror.
 summary prints how many CVEs the database loaded, and marks coverage
 INCOMPLETE when it is under 100,000.
 
+Both cve-bin-tool runs write a JSON and an HTML report even when they find
+nothing, so the artifact holds a record of a clean scan too. A summary section
+with no report says why: the version lookup was skipped because no dependency
+is mapped to an NVD product, or cve-bin-tool failed (with its exit status), or
+the scan step did not run.
+
 Each finding row gives product, version, CVE, severity and score, with the
 version vcpkg resolved. Confirm the CVE applies, then fix it by moving the
 vcpkg baseline or port version.

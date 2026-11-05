@@ -185,7 +185,9 @@ jobs:
           # 2.0 feed (release 3.4 used the retired/empty 1.1 feed → no NVD data).
           # OSV/GAD/CURL/EPSS/RSD are disabled: OSV in particular pulls every
           # language ecosystem and OOM-reclaimed the runner; we match C/C++ by CPE.
-          common=(--nvd json-mirror --no-0-cve-report --format json,html
+          # Each run writes its report even when it finds nothing (an empty
+          # list), so a missing report means the run failed or was skipped.
+          common=(--nvd json-mirror --format json,html
                   --disable-data-source "OSV,GAD,CURL,EPSS,RSD")
           # 1) Version lookup of the resolved direct deps against the FULL NVD DB
           #    — covers C++ libs with no binary checker (protobuf, yaml-cpp, grpc).
@@ -218,6 +220,9 @@ jobs:
         working-directory: ${{ inputs.manifest-dir }}
         env:
           DB_COUNT: ${{ steps.scan.outputs.db_count }}
+          DEP_COUNT: ${{ steps.deps.outputs.count }}
+          DEPS_RC: ${{ steps.scan.outputs.deps_rc }}
+          BIN_RC: ${{ steps.scan.outputs.bin_rc }}
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, os
@@ -256,14 +261,23 @@ jobs:
                     "`anolishq/.github`.\n")
           else:
               print(f"_NVD database loaded: {db_count:,} CVEs._\n")
-          for title, path in [
-              ("Direct dependencies (resolved version → NVD)", "cve-deps.json"),
-              ("Binary scan (linked / transitive libraries)", "cve-binary.json"),
+          # cve-bin-tool exits 0 when it finds no CVEs and 1 when it finds some,
+          # and writes a report either way; any other status is a failure.
+          for title, path, rc in [
+              ("Direct dependencies (resolved version → NVD)", "cve-deps.json",
+               os.environ.get("DEPS_RC", "")),
+              ("Binary scan (linked / transitive libraries)", "cve-binary.json",
+               os.environ.get("BIN_RC", "")),
           ]:
               print(f"### {title}\n")
               rows = load(path)
               if rows is None:
-                  print("_No report produced (scan skipped or errored — see step log)._\n")
+                  if path == "cve-deps.json" and os.environ.get("DEP_COUNT") == "0":
+                      print("_Skipped: no dependency is mapped to an NVD product._\n")
+                  elif rc:
+                      print(f"❌ No report produced: cve-bin-tool exited {rc} (see step log).\n")
+                  else:
+                      print("❌ No report produced: the scan did not run (see step log).\n")
                   continue
               if not rows:
                   print(("✅ No known CVEs detected.\n" if nvd_ok
