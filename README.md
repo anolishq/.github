@@ -281,15 +281,34 @@ Other inputs: `triplet` (default `x64-linux-static`), `manifest-dir` (default
 ### clang-tidy-diff.yml
 
 Runs the pinned clang-tidy 18.1.8, with the repo's `.clang-tidy`, over only
-the lines a PR changes. Findings appear as annotations on the PR diff and in
-the job summary. The job configures and builds the preset first, because
-clang-tidy needs `compile_commands.json` and any generated headers.
+the lines a pull request or a push changes. Findings appear as annotations
+(inline on a PR's diff) and in the job summary. The job configures and builds
+the preset first, because clang-tidy needs `compile_commands.json` and any
+generated headers.
 
 It is advisory by default. With `blocking: true` a finding on a changed line
 fails the job; list it in the repo's `ok` aggregator so that blocks the merge.
-In either mode the job fails when a PR changes C/C++ sources and clang-tidy
-could not check them: no `compile_commands.json`, one with no entries, a crash,
-or a clang-tidy that cannot start.
+In either mode the job fails when a PR or push changes C/C++ sources and
+clang-tidy could not check them: no `compile_commands.json`, one with no
+entries, a crash, or a clang-tidy that cannot start.
+
+Which lines it lints depends on the event:
+
+- `pull_request`: the PR's changes against its base branch.
+- `push`: the pushed commits, `github.event.before...HEAD`. A push with no
+  previous commit that creates a new branch is diffed against the default
+  branch. The first push of the default branch itself has nothing to diff
+  against: the job passes and the summary says that nothing was linted.
+- `schedule` and `workflow_dispatch`: nothing. The job passes and the summary
+  says that nothing was linted.
+- Any other event, such as `merge_group`: the job fails, since it does not
+  know which lines changed.
+
+The job fails when it cannot compute that diff, for example when the commit
+before a push is not in the checkout's history. A caller whose CI uses
+`concurrency` with `cancel-in-progress` can cancel a push run on `main` when a
+newer push lands; the newer run lints only its own commits, so the cancelled
+commit's lines are linted by its PR run but not on `main`.
 
 Callers pin it to the `clang-tidy-diff` tag:
 
