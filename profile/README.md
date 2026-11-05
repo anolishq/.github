@@ -23,6 +23,7 @@ and is the single path for control, from an HTTP API or a behavior tree.
 - [anolis-provider-ezo](https://github.com/anolishq/anolis-provider-ezo): provider for Atlas Scientific EZO sensor circuits over I2C
 - [anolis-provider-adafruit](https://github.com/anolishq/anolis-provider-adafruit): provider for Adafruit STEMMA QT boards, on Adafruit's CircuitPython drivers
 - [anolis-provider-sparkfun](https://github.com/anolishq/anolis-provider-sparkfun): provider for SparkFun Qwiic boards, on SparkFun's Qwiic Python drivers
+- [anolis-provider-template-cpp](https://github.com/anolishq/anolis-provider-template-cpp) and [anolis-provider-template-python](https://github.com/anolishq/anolis-provider-template-python): templates to start a provider from, in C++ or Python
 - [anolis-workbench](https://github.com/anolishq/anolis-workbench): app to compose, provision and operate a machine
 - [anolis-telemetry-export](https://github.com/anolishq/anolis-telemetry-export): exports the runtime's telemetry from InfluxDB
 - [anolis-projects](https://github.com/anolishq/anolis-projects): machine configurations for specific deployments
