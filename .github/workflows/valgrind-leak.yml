@@ -117,6 +117,9 @@ jobs:
           fi
           wrap=()
           [ -n "${DURATION:-}" ] && wrap=(timeout -s "$SIG" "$DURATION")
+          # A log already here (committed, or left by the build) would read as
+          # this run's when valgrind cannot start the target and writes none.
+          rm -f valgrind.log
           echo "::group::valgrind"
           "${wrap[@]}" valgrind \
             --leak-check=full --show-leak-kinds=all --track-origins=yes \
@@ -156,7 +159,7 @@ jobs:
             echo "## Valgrind leak check"
             echo ""
             if [ -z "${RAN:-}" ]; then
-              echo "_Valgrind did not run — the build or an earlier step failed (see step log)._"
+              echo "_Valgrind did not run to the end of its step: the build or an earlier step failed, or the run step was cancelled or failed (see step log)._"
               exit 0
             fi
             if [ "$RAN" != "true" ]; then

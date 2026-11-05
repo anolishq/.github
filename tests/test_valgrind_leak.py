@@ -67,14 +67,14 @@ class ValgrindLeakTest(unittest.TestCase):
         self.env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                     "STUB_LOG": log, "STUB_RC": str(rc)}
 
-    def check(self, command, duration=""):
+    def check(self, command, duration="", signal="INT"):
         """Run the run, summary and Enforce steps as the workflow wires them.
 
         The helper does not evaluate `if:`, so the Enforce step always runs here;
         test_enforce_step_runs_only_with_enforce checks its condition.
         """
         values = {"inputs.run": command, "inputs.suppressions": "valgrind.supp",
-                  "inputs.duration": duration, "inputs.signal": "INT"}
+                  "inputs.duration": duration, "inputs.signal": signal}
         run = run_step(WORKFLOW, RUN, self.work, values, {}, self.env)
         self.assertEqual(run.rc, 0, run.log)
         outputs = {"vg": run.outputs}
@@ -94,7 +94,7 @@ class ValgrindLeakTest(unittest.TestCase):
         # A failed build skips the run step, so it wrote no outputs and no log.
         summary = run_step(WORKFLOW, SUMMARY, self.work, {}, {"vg": {}}, self.env)
         self.assertEqual(summary.rc, 0, summary.log)
-        self.assertIn("Valgrind did not run", summary.summary)
+        self.assertIn("Valgrind did not run to the end of its step", summary.summary)
         self.assertNotIn("no leak summary", summary.summary)
         self.assertNotIn("No 'definitely lost' leaks", summary.summary)
 
@@ -106,6 +106,24 @@ class ValgrindLeakTest(unittest.TestCase):
         run, summary, enforce = self.check("./build/missing-bin")
         self.assert_not_checked(summary, enforce)
         self.assertEqual(run.outputs["rc"], "127")
+
+    @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
+    def test_old_log_does_not_count_as_this_run(self):
+        # A valgrind.log left in the directory (committed, or from the build) must not
+        # stand in for a run where valgrind could not start the target.
+        (self.work / "valgrind.log").write_text(
+            "==1== LEAK SUMMARY:\n==1==    definitely lost: 0 bytes in 0 blocks\n")
+        run, summary, enforce = self.check("./build/missing-bin")
+        self.assert_not_checked(summary, enforce)
+        self.assertEqual(run.outputs["rc"], "127")
+
+    @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
+    def test_target_killed_by_duration_signal_kill_fails_enforce(self):
+        # SIGKILL stops valgrind itself, so it writes no leak summary.
+        sleep = shutil.which("sleep")
+        run, summary, enforce = self.check(f"{sleep} 60", duration="2s", signal="KILL")
+        self.assert_not_checked(summary, enforce)
+        self.assertEqual(run.outputs["rc"], "137")
 
     @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
     def test_non_executable_target_fails_enforce(self):
