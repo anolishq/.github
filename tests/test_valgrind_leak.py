@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from workflow_steps import run_step
+from workflow_steps import find_step, run_step
 
 WORKFLOW = "valgrind-leak.yml"
 RUN, SUMMARY, ENFORCE = "Run valgrind (non-blocking)", "Build job summary", "Enforce (optional)"
@@ -68,9 +68,13 @@ class ValgrindLeakTest(unittest.TestCase):
                     "STUB_LOG": log, "STUB_RC": str(rc)}
 
     def check(self, command, duration=""):
-        """Run the three steps as the workflow wires them, with enforce: true."""
+        """Run the run, summary and Enforce steps as the workflow wires them.
+
+        The helper does not evaluate `if:`, so the Enforce step always runs here;
+        test_enforce_step_runs_only_with_enforce checks its condition.
+        """
         values = {"inputs.run": command, "inputs.suppressions": "valgrind.supp",
-                  "inputs.duration": duration, "inputs.signal": "INT", "inputs.enforce": "true"}
+                  "inputs.duration": duration, "inputs.signal": "INT"}
         run = run_step(WORKFLOW, RUN, self.work, values, {}, self.env)
         self.assertEqual(run.rc, 0, run.log)
         outputs = {"vg": run.outputs}
@@ -85,6 +89,17 @@ class ValgrindLeakTest(unittest.TestCase):
         self.assertNotIn("valgrind clean", enforce.log)
         self.assertNotIn("No 'definitely lost' leaks", summary)
         self.assertIn("no leak summary", summary)
+
+    def test_summary_when_the_run_step_did_not_run(self):
+        # A failed build skips the run step, so it wrote no outputs and no log.
+        summary = run_step(WORKFLOW, SUMMARY, self.work, {}, {"vg": {}}, self.env)
+        self.assertEqual(summary.rc, 0, summary.log)
+        self.assertIn("Valgrind did not run", summary.summary)
+        self.assertNotIn("no leak summary", summary.summary)
+        self.assertNotIn("No 'definitely lost' leaks", summary.summary)
+
+    def test_enforce_step_runs_only_with_enforce(self):
+        self.assertEqual(find_step(WORKFLOW, ENFORCE).get("if"), "${{ inputs.enforce }}")
 
     @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
     def test_missing_binary_fails_enforce(self):
