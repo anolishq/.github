@@ -283,6 +283,17 @@ In either mode the job fails when a PR changes C/C++ sources and clang-tidy
 could not check them: no `compile_commands.json`, one with no entries, a crash,
 or a clang-tidy that cannot start.
 
+Which lines it lints depends on the event:
+
+- `pull_request`: the PR's changes against its base branch.
+- `push`: the pushed commits, `github.event.before...HEAD`. A push with no
+  previous commit (a new branch) is diffed against the default branch.
+- Any other event, such as `schedule` or `workflow_dispatch`: nothing. The job
+  passes and the summary says that nothing was linted.
+
+The job fails when it cannot compute that diff, for example when the commit
+before a push is not in the checkout's history.
+
 Callers pin it to the `clang-tidy-diff` tag:
 
 ```yaml
