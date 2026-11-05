@@ -9,7 +9,9 @@ name: Valgrind Leak Check
 # a triage pass to populate it.
 #
 # Advisory by default (the job succeeds and surfaces findings in the summary +
-# artifact); set `enforce: true` to fail on "definitely lost".
+# artifact); set `enforce: true` to fail on "definitely lost", and when valgrind
+# wrote no leak summary (the command did not run to the end under valgrind, so
+# nothing was checked).
 
 on:
   workflow_call:
@@ -48,7 +50,7 @@ on:
         default: "valgrind.supp"
         type: string
       enforce:
-        description: "Fail the job on 'definitely lost' leaks (default: advisory only)."
+        description: "Fail the job on 'definitely lost' leaks, or when valgrind wrote no leak summary (default: advisory only)."
         required: false
         default: false
         type: boolean
@@ -127,8 +129,20 @@ jobs:
           # definitely-lost bytes from the leak summary (0 if none / not present)
           lost=$(grep -oE 'definitely lost: [0-9,]+ bytes' valgrind.log | grep -oE '[0-9,]+' | tr -d , | head -1)
           lost=${lost:-0}
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          echo "definitely_lost=$lost" >> "$GITHUB_OUTPUT"
+          # Valgrind writes a leak summary ("LEAK SUMMARY", or "All heap blocks
+          # were freed" when nothing leaked) only once the target has run under
+          # it. Without one (command not found, not executable, valgrind killed)
+          # the 0 above means nothing was checked.
+          ran=false
+          if [ -f valgrind.log ] && grep -qE 'LEAK SUMMARY|All heap blocks were freed' valgrind.log; then
+            ran=true
+          fi
+          echo "leak summary written: $ran"
+          {
+            echo "rc=$rc"
+            echo "definitely_lost=$lost"
+            echo "ran=$ran"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build job summary
         if: always()
@@ -136,12 +150,22 @@ jobs:
         env:
           LOST: ${{ steps.vg.outputs.definitely_lost }}
           RC: ${{ steps.vg.outputs.rc }}
+          RAN: ${{ steps.vg.outputs.ran }}
         run: |
           {
             echo "## Valgrind leak check"
             echo ""
-            if [ ! -f valgrind.log ]; then
-              echo "_No valgrind log produced — the build or run failed before valgrind (see step log)._"
+            if [ -z "${RAN:-}" ]; then
+              echo "_Valgrind did not run — the build or an earlier step failed (see step log)._"
+              exit 0
+            fi
+            if [ "$RAN" != "true" ]; then
+              echo "❌ **Valgrind wrote no leak summary (exit ${RC}), so nothing was checked.** The command did not run to completion under valgrind; see the step log."
+              if [ -s valgrind.log ]; then
+                echo '```'
+                tail -n 20 valgrind.log
+                echo '```'
+              fi
               exit 0
             fi
             echo '```'
@@ -168,7 +192,13 @@ jobs:
         working-directory: ${{ inputs.manifest-dir }}
         env:
           LOST: ${{ steps.vg.outputs.definitely_lost }}
+          RC: ${{ steps.vg.outputs.rc }}
+          RAN: ${{ steps.vg.outputs.ran }}
         run: |
+          if [ "${RAN:-}" != "true" ]; then
+            echo "::error::valgrind wrote no leak summary (exit ${RC:-none}), so nothing was checked (enforce=true)"
+            exit 1
+          fi
           if [ "${LOST:-0}" -gt 0 ]; then
             echo "::error::valgrind: ${LOST} bytes definitely lost (enforce=true)"
             exit 1

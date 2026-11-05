@@ -219,6 +219,12 @@ The job is advisory by default: it succeeds and puts the leak summary in the
 job summary and a `valgrind-log-<preset>` artifact. Set `enforce: true` to fail
 on a definite leak.
 
+With `enforce: true` the job also fails when valgrind wrote no leak summary,
+because then nothing was checked: the `run` command was not found or not
+executable, or valgrind was killed before the target finished. A target
+stopped by the `duration` signal still gets a leak summary. Without `enforce`
+the job summary flags a missing leak summary and the job still passes.
+
 ```yaml
 jobs:
   leak-check:
