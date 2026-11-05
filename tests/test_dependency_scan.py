@@ -28,9 +28,11 @@ import json, os, signal, sys
 args = sys.argv[1:]
 name = args[args.index("--output-file") + 1]
 formats = args[args.index("--format") + 1].split(",")
-print(f"There are {os.environ.get('STUB_DB_COUNT', '312000')} CVE entries in the database")
-if os.environ.get("STUB_CRASH"):
-    sys.exit(int(os.environ["STUB_CRASH"]))
+run = {"cve-deps": "DEPS", "cve-binary": "BINARY"}[name]
+if not os.environ.get("STUB_NO_DB_LINE"):
+    print(f"There are {os.environ.get('STUB_DB_COUNT', '312000')} CVE entries in the database")
+if os.environ.get(f"STUB_CRASH_{run}"):
+    sys.exit(int(os.environ[f"STUB_CRASH_{run}"]))
 if name == "cve-binary" and os.environ.get("STUB_KILL_STEP_ON_BINARY"):
     # What a step timeout does: the runner kills the step's shell mid-run.
     os.kill(os.getppid(), signal.SIGKILL)
@@ -40,9 +42,9 @@ if not (not cves and "--no-0-cve-report" in args):
     for fmt in formats:
         with open(f"{name}.{fmt}", "w") as f:
             f.write(json.dumps(cves) if fmt == "json" else "<html></html>")
-if name == "cve-binary" and os.environ.get("STUB_TRUNCATE_BINARY"):
+if name == "cve-binary" and "STUB_BINARY_JSON" in os.environ:
     with open(f"{name}.json", "w") as f:
-        f.write('[{"vendor": "openssl", "prod')
+        f.write(os.environ["STUB_BINARY_JSON"])
 sys.exit(1 if cves else 0)
 '''
 
@@ -106,12 +108,13 @@ class DependencyScanTest(unittest.TestCase):
             self.assertIn("CVE-2099-0001", section, summary)
 
     def test_failed_scan_is_not_clean_and_names_the_exit_status(self):
-        scan, summary = self.scan_and_summarise(STUB_CRASH="2")
-        self.assertEqual(scan.outputs["deps_rc"], "2")
+        # Different codes per run, so each section must name its own run's status.
+        scan, summary = self.scan_and_summarise(STUB_CRASH_DEPS="2", STUB_CRASH_BINARY="3")
+        self.assertEqual((scan.outputs["deps_rc"], scan.outputs["bin_rc"]), ("2", "3"))
         deps, binary = self.sections(summary)
-        for section in (deps, binary):
+        for section, code in ((deps, 2), (binary, 3)):
             self.assertNotIn("No known CVEs", section, summary)
-            self.assertIn("cve-bin-tool exited 2", section, summary)
+            self.assertIn(f"cve-bin-tool exited {code} ", section, summary)
 
     def test_skipped_version_lookup_says_it_was_skipped(self):
         _, summary = self.scan_and_summarise(dep_count="0")
@@ -129,6 +132,24 @@ class DependencyScanTest(unittest.TestCase):
         for section in (deps, binary):
             self.assertNotIn("No known CVEs", section, summary.summary)
             self.assertIn("the scan step did not finish", section, summary.summary)
+        # Nothing measured the database, so the banner must not claim a size.
+        self.assertIn("CVE database size is unknown", summary.summary)
+        self.assertNotIn("DB held only", summary.summary)
+
+    def test_timeout_with_no_mapped_deps_does_not_claim_a_db_size(self):
+        scan, summary = self.scan_and_summarise(dep_count="0", scan_rc=-9,
+                                                STUB_KILL_STEP_ON_BINARY="1")
+        self.assertEqual(scan.outputs.get("deps_db_count"), "", scan.outputs)
+        self.assertIn("CVE database size is unknown: the scan step did not finish", summary)
+        self.assertNotIn("DB held only", summary)
+        self.assertNotIn("No known CVEs", summary)
+
+    def test_db_size_not_reported_by_a_finished_scan(self):
+        # Both runs crash before printing the count; the step itself finished.
+        _, summary = self.scan_and_summarise(STUB_CRASH_DEPS="2", STUB_CRASH_BINARY="2",
+                                             STUB_NO_DB_LINE="1")
+        self.assertIn("cve-bin-tool did not report how many CVEs it loaded", summary)
+        self.assertNotIn("DB held only", summary)
 
     def test_timeout_during_binary_scan_keeps_the_version_lookup_result(self):
         # timeout-minutes kills the step; outputs written before that must survive.
@@ -141,11 +162,20 @@ class DependencyScanTest(unittest.TestCase):
         self.assertIn("the scan step did not finish", binary, summary)
 
     def test_unreadable_report_is_not_clean(self):
-        _, summary = self.scan_and_summarise(STUB_TRUNCATE_BINARY="1")
-        deps, binary = self.sections(summary)
-        self.assertIn("No known CVEs detected", deps, summary)
-        self.assertNotIn("No known CVEs", binary, summary)
-        self.assertIn("unreadable", binary, summary)
+        cases = {"truncated": '[{"vendor": "openssl", "prod', "object": "{}",
+                 "number": "5", "dict without a report list": '{"report": 5}'}
+        for label, text in cases.items():
+            with self.subTest(report=label):
+                _, summary = self.scan_and_summarise(STUB_BINARY_JSON=text)
+                deps, binary = self.sections(summary)
+                self.assertIn("No known CVEs detected", deps, summary)
+                self.assertNotIn("No known CVEs", binary, summary)
+                self.assertIn("unreadable", binary, summary)
+
+    def test_report_wrapped_in_a_dict_is_read(self):
+        _, summary = self.scan_and_summarise(STUB_BINARY_JSON=json.dumps({"report": [FINDING]}))
+        _, binary = self.sections(summary)
+        self.assertIn("1 finding(s)", binary, summary)
 
     def test_empty_result_with_unloaded_nvd_is_not_clean(self):
         _, summary = self.scan_and_summarise(STUB_DB_COUNT="5")

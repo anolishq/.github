@@ -190,11 +190,10 @@ jobs:
           common=(--nvd json-mirror --format json,html
                   --disable-data-source "OSV,GAD,CURL,EPSS,RSD")
           # Safety guard: how many CVEs the DB loaded. If implausibly low (mirror
-          # outage), an empty result must NOT read as a clean bill.
+          # outage), an empty result must NOT read as a clean bill. Empty when
+          # cve-bin-tool has not reported it, which is not the same as 0.
           db_count() {
-            local n
-            n=$(grep -oE 'There are [0-9]+ CVE' cbt.out | grep -oE '[0-9]+' | sort -rn | head -1)
-            echo "${n:-0}"
+            grep -oE 'There are [0-9]+ CVE' cbt.out | grep -oE '[0-9]+' | sort -rn | head -1
           }
           # Each result goes to GITHUB_OUTPUT as soon as it is known, so a step
           # timeout during the binary scan keeps the version lookup's result.
@@ -238,9 +237,11 @@ jobs:
           # The DB normally holds ~300k+ CVEs once the NVD mirror loads. A low
           # count means the mirror didn't populate, so an empty result is not a
           # clean bill of health. DB_COUNT is missing when the step stopped
-          # during the binary scan; the version lookup's count stands in.
-          db_count = int(os.environ.get("DB_COUNT") or os.environ.get("DEPS_DB_COUNT") or 0)
-          nvd_ok = db_count >= 100000
+          # during the binary scan; the version lookup's count stands in. With
+          # neither, the size is unknown, which is not a clean bill either.
+          count = os.environ.get("DB_COUNT") or os.environ.get("DEPS_DB_COUNT") or ""
+          db_count = int(count) if count else None
+          nvd_ok = db_count is not None and db_count >= 100000
           UNREADABLE = object()
           def load(path):
               if not os.path.exists(path):
@@ -265,7 +266,16 @@ jobs:
                   out.append(f"\n…and {len(rows) - 100} more — see the report artifact.")
               return "\n".join(out)
           print("## vcpkg dependency CVE scan\n")
-          if not nvd_ok:
+          if db_count is None:
+              why = ("cve-bin-tool did not report how many CVEs it loaded"
+                     if os.environ.get("BIN_RC") else
+                     "the scan step did not finish (skipped, timed out or cancelled)")
+              print("> [!WARNING]\n"
+                    f"> **The CVE database size is unknown: {why} — CVE coverage "
+                    "is INCOMPLETE.**\n"
+                    "> An empty result below does **not** mean the dependencies "
+                    "are free of known CVEs. See the step log.\n")
+          elif not nvd_ok:
               # NVD mirror didn't populate -> an empty result is NOT a clean bill.
               print("> [!WARNING]\n"
                     f"> **The NVD dataset did not load (DB held only {db_count} "
@@ -276,8 +286,9 @@ jobs:
                     "`anolishq/.github`.\n")
           else:
               print(f"_NVD database loaded: {db_count:,} CVEs._\n")
-          # cve-bin-tool exits 0 when it finds no CVEs and 1 when it finds some,
-          # and writes a report either way; any other status is a failure.
+          # cve-bin-tool writes its report and then exits 0 (no CVEs) or 1 (some).
+          # 1 also covers an uncaught exception, and other statuses are failures,
+          # so a missing report with any status means the run failed.
           for title, path, rc in [
               ("Direct dependencies (resolved version → NVD)", "cve-deps.json",
                os.environ.get("DEPS_RC", "")),
