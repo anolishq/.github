@@ -185,8 +185,18 @@ jobs:
           # 2.0 feed (release 3.4 used the retired/empty 1.1 feed → no NVD data).
           # OSV/GAD/CURL/EPSS/RSD are disabled: OSV in particular pulls every
           # language ecosystem and OOM-reclaimed the runner; we match C/C++ by CPE.
-          common=(--nvd json-mirror --no-0-cve-report --format json,html
+          # Each run writes its report even when it finds nothing (an empty
+          # list), so a missing report means the run failed or was skipped.
+          common=(--nvd json-mirror --format json,html
                   --disable-data-source "OSV,GAD,CURL,EPSS,RSD")
+          # Safety guard: how many CVEs the DB loaded. If implausibly low (mirror
+          # outage), an empty result must NOT read as a clean bill. Empty when
+          # cve-bin-tool has not reported it, which is not the same as 0.
+          db_count() {
+            grep -oE 'There are [0-9]+ CVE' cbt.out | grep -oE '[0-9]+' | sort -rn | head -1
+          }
+          # Each result goes to GITHUB_OUTPUT as soon as it is known, so a step
+          # timeout during the binary scan keeps the version lookup's result.
           # 1) Version lookup of the resolved direct deps against the FULL NVD DB
           #    — covers C++ libs with no binary checker (protobuf, yaml-cpp, grpc).
           #    Runs first so it populates the cached CVE DB.
@@ -197,19 +207,18 @@ jobs:
           else
             echo "No mapped dependencies; skipping version-based lookup." | tee cbt.out
           fi
+          {
+            echo "deps_rc=$deps_rc"
+            echo "deps_db_count=$(db_count)"
+          } >> "$GITHUB_OUTPUT"
           # 2) Binary scan of the installed tree (DB cached → cheap); catches
           #    linked/transitive libs via cve-bin-tool checkers.
           cve-bin-tool "${common[@]}" --output-file cve-binary "vcpkg_installed/${{ inputs.triplet }}" 2>&1 | tee -a cbt.out
           bin_rc=${PIPESTATUS[0]}
-          # Safety guard: capture how many CVEs the DB loaded. If implausibly low
-          # (mirror outage), an empty result must NOT read as a clean bill.
-          db_count=$(grep -oE 'There are [0-9]+ CVE' cbt.out | grep -oE '[0-9]+' | sort -rn | head -1)
-          db_count=${db_count:-0}
-          echo "version-lookup exit=$deps_rc  binary-scan exit=$bin_rc  db_cve_count=$db_count"
+          echo "version-lookup exit=$deps_rc  binary-scan exit=$bin_rc  db_cve_count=$(db_count)"
           {
-            echo "deps_rc=$deps_rc"
             echo "bin_rc=$bin_rc"
-            echo "db_count=$db_count"
+            echo "db_count=$(db_count)"
           } >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -218,22 +227,34 @@ jobs:
         working-directory: ${{ inputs.manifest-dir }}
         env:
           DB_COUNT: ${{ steps.scan.outputs.db_count }}
+          DEPS_DB_COUNT: ${{ steps.scan.outputs.deps_db_count }}
+          DEP_COUNT: ${{ steps.deps.outputs.count }}
+          DEPS_RC: ${{ steps.scan.outputs.deps_rc }}
+          BIN_RC: ${{ steps.scan.outputs.bin_rc }}
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, os
           # The DB normally holds ~300k+ CVEs once the NVD mirror loads. A low
           # count means the mirror didn't populate, so an empty result is not a
-          # clean bill of health.
-          db_count = int(os.environ.get("DB_COUNT") or 0)
-          nvd_ok = db_count >= 100000
+          # clean bill of health. DB_COUNT is missing when the step stopped
+          # during the binary scan; the version lookup's count stands in. With
+          # neither, the size is unknown, which is not a clean bill either.
+          count = os.environ.get("DB_COUNT") or os.environ.get("DEPS_DB_COUNT") or ""
+          db_count = int(count) if count else None
+          nvd_ok = db_count is not None and db_count >= 100000
+          UNREADABLE = object()
           def load(path):
               if not os.path.exists(path):
                   return None
               try:
                   d = json.load(open(path))
               except Exception:
-                  return []
-              return d if isinstance(d, list) else d.get("report", [])
+                  return UNREADABLE
+              if isinstance(d, list):
+                  return d
+              if isinstance(d, dict) and isinstance(d.get("report"), list):
+                  return d["report"]
+              return UNREADABLE
           def table(rows):
               out = ["| Product | Version | CVE | Severity | Score |",
                      "| --- | --- | --- | --- | --- |"]
@@ -245,7 +266,16 @@ jobs:
                   out.append(f"\n…and {len(rows) - 100} more — see the report artifact.")
               return "\n".join(out)
           print("## vcpkg dependency CVE scan\n")
-          if not nvd_ok:
+          if db_count is None:
+              why = ("cve-bin-tool did not report how many CVEs it loaded"
+                     if os.environ.get("BIN_RC") else
+                     "the scan step did not finish (skipped, timed out or cancelled)")
+              print("> [!WARNING]\n"
+                    f"> **The CVE database size is unknown: {why} — CVE coverage "
+                    "is INCOMPLETE.**\n"
+                    "> An empty result below does **not** mean the dependencies "
+                    "are free of known CVEs. See the step log.\n")
+          elif not nvd_ok:
               # NVD mirror didn't populate -> an empty result is NOT a clean bill.
               print("> [!WARNING]\n"
                     f"> **The NVD dataset did not load (DB held only {db_count} "
@@ -256,14 +286,29 @@ jobs:
                     "`anolishq/.github`.\n")
           else:
               print(f"_NVD database loaded: {db_count:,} CVEs._\n")
-          for title, path in [
-              ("Direct dependencies (resolved version → NVD)", "cve-deps.json"),
-              ("Binary scan (linked / transitive libraries)", "cve-binary.json"),
+          # cve-bin-tool writes its report and then exits 0 (no CVEs) or 1 (some).
+          # 1 also covers an uncaught exception, and other statuses are failures,
+          # so a missing report with any status means the run failed.
+          for title, path, rc in [
+              ("Direct dependencies (resolved version → NVD)", "cve-deps.json",
+               os.environ.get("DEPS_RC", "")),
+              ("Binary scan (linked / transitive libraries)", "cve-binary.json",
+               os.environ.get("BIN_RC", "")),
           ]:
               print(f"### {title}\n")
               rows = load(path)
               if rows is None:
-                  print("_No report produced (scan skipped or errored — see step log)._\n")
+                  if path == "cve-deps.json" and os.environ.get("DEP_COUNT") == "0":
+                      print("_Skipped: no dependency is mapped to an NVD product._\n")
+                  elif rc:
+                      print(f"❌ No report produced: cve-bin-tool exited {rc} (see step log).\n")
+                  else:
+                      print("❌ No report produced: the scan step did not finish "
+                            "(skipped, timed out or cancelled; see step log).\n")
+                  continue
+              if rows is UNREADABLE:
+                  print(f"❌ Report unreadable: {path} is not a cve-bin-tool JSON report "
+                        "(see the report artifact).\n")
                   continue
               if not rows:
                   print(("✅ No known CVEs detected.\n" if nvd_ok
