@@ -51,12 +51,19 @@ def render(text, values, outputs):
     def sub(m):
         expr = m.group(1)
         if expr in values:
-            return str(values[expr])
+            return as_actions_string(values[expr])
         ref = STEP_OUTPUT.fullmatch(expr)
         if ref and ref.group(1) in outputs:
-            return str(outputs[ref.group(1)].get(ref.group(2), ""))
+            return as_actions_string(outputs[ref.group(1)].get(ref.group(2), ""))
         raise KeyError(f"no value for ${{{{ {expr} }}}}")
     return EXPR.sub(sub, str(text))
+
+
+def as_actions_string(value):
+    """A value as Actions writes it into a script: booleans are `true`/`false`."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 def parse_outputs(text):
