@@ -5,8 +5,8 @@ name: Clang-Tidy (diff)
 # Runs the PINNED clang-tidy (via setup-clang-tools) over ONLY the lines a PR
 # changes (upstream clang-tidy-diff.py), honoring the repo's .clang-tidy. New
 # findings surface as GitHub annotations on the PR diff plus a job summary.
-# On push it lints the pushed commits; other events (schedule,
-# workflow_dispatch) have no changed lines, so they lint nothing and say so.
+# On push it lints the pushed commits. schedule and workflow_dispatch runs have
+# no changed lines, so they lint nothing and say so; any other event fails.
 #
 # Advisory by default (blocking: false) — findings never fail the job. Flip
 # blocking: true (and add the job to the repo's `ok` gate) to fail on new findings
@@ -109,11 +109,12 @@ jobs:
 
           # The commit to diff HEAD against: the PR's base branch, the commit
           # before the push, or the default branch for a push with no previous
-          # commit (a new branch). Other events have no changed lines.
+          # commit (a new branch). The checkout (fetch-depth: 0) already has
+          # every branch. schedule and workflow_dispatch have no changed lines;
+          # any other event fails rather than pass with nothing linted.
           case "$EVENT" in
             pull_request)
               [ -n "$BASE_REF" ] || fail "No base branch for this pull_request run, so the changed lines were not checked."
-              git fetch --no-tags origin "$BASE_REF"
               base="origin/${BASE_REF}"
               ;;
             push)
@@ -121,14 +122,16 @@ jobs:
                 base=$BEFORE
               else
                 [ -n "$DEFAULT_BRANCH" ] || fail "No previous commit or default branch for this push, so the changed lines were not checked."
-                git fetch --no-tags origin "$DEFAULT_BRANCH"
                 base="origin/${DEFAULT_BRANCH}"
               fi
               ;;
-            *)
+            schedule|workflow_dispatch)
               printf '## clang-tidy (changed lines)\nSkipped: a %s run has no changed lines, so nothing was linted.\n' \
                 "$EVENT" >> "$GITHUB_STEP_SUMMARY"
               exit 0
+              ;;
+            *)
+              fail "clang-tidy-diff does not support ${EVENT} runs, so the changed lines were not checked."
               ;;
           esac
 

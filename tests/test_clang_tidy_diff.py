@@ -151,6 +151,21 @@ class ClangTidyDiffTest(unittest.TestCase):
                 self.assertIn("nothing was linted", res.summary)
                 self.assertNotIn("No C/C++ changes", res.summary)
 
+    def test_unsupported_event_fails(self):
+        # An event the step does not know must not pass with nothing linted.
+        for event in ("merge_group", "pull_request_target", "workflow_call"):
+            with self.subTest(event=event):
+                res = self.lint(event, self.feature, base_ref="main", before=self.base)
+                self.assertNotEqual(res.rc, 0, res.log)
+                self.assertIsNone(self.linted())
+                self.assertIn(f"does not support {event} runs", res.summary)
+
+    def test_push_without_before_or_default_branch_fails(self):
+        res = self.lint("push", self.feature, before=ZEROS, default_branch="")
+        self.assertNotEqual(res.rc, 0, res.log)
+        self.assertIsNone(self.linted())
+        self.assertIn("No previous commit or default branch", res.summary)
+
 
 if __name__ == "__main__":
     unittest.main()
