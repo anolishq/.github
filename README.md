@@ -379,8 +379,8 @@ nothing, so the artifact holds a record of a clean scan too. A summary section
 with no report says why: the version lookup was skipped because no dependency
 is mapped to an NVD product, or cve-bin-tool failed (with its exit status), or
 the scan step did not finish (skipped, timed out or cancelled). A report that
-is not valid JSON, or is not a list of findings, is flagged as unreadable, not
-read as clean. Each run's result is recorded as soon as it is known, so a
+is not valid JSON, or is valid JSON but neither a list nor an object whose
+`report` is a list, is flagged as unreadable, not read as clean. Each run's result is recorded as soon as it is known, so a
 timeout during the binary scan still shows the version lookup's result. When no
 run reported the database size, the summary says the size is unknown and marks
 coverage INCOMPLETE.

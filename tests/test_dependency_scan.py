@@ -134,6 +134,7 @@ class DependencyScanTest(unittest.TestCase):
             self.assertIn("the scan step did not finish", section, summary.summary)
         # Nothing measured the database, so the banner must not claim a size.
         self.assertIn("CVE database size is unknown", summary.summary)
+        self.assertIn("CVE coverage is INCOMPLETE", summary.summary)
         self.assertNotIn("DB held only", summary.summary)
 
     def test_timeout_with_no_mapped_deps_does_not_claim_a_db_size(self):
@@ -141,6 +142,7 @@ class DependencyScanTest(unittest.TestCase):
                                                 STUB_KILL_STEP_ON_BINARY="1")
         self.assertEqual(scan.outputs.get("deps_db_count"), "", scan.outputs)
         self.assertIn("CVE database size is unknown: the scan step did not finish", summary)
+        self.assertIn("CVE coverage is INCOMPLETE", summary)
         self.assertNotIn("DB held only", summary)
         self.assertNotIn("No known CVEs", summary)
 
@@ -149,6 +151,7 @@ class DependencyScanTest(unittest.TestCase):
         _, summary = self.scan_and_summarise(STUB_CRASH_DEPS="2", STUB_CRASH_BINARY="2",
                                              STUB_NO_DB_LINE="1")
         self.assertIn("cve-bin-tool did not report how many CVEs it loaded", summary)
+        self.assertIn("CVE coverage is INCOMPLETE", summary)
         self.assertNotIn("DB held only", summary)
 
     def test_timeout_during_binary_scan_keeps_the_version_lookup_result(self):
