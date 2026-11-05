@@ -33,6 +33,8 @@ env:
     anolis-provider-sim
     anolis-provider-adafruit
     anolis-provider-sparkfun
+    anolis-provider-template-cpp
+    anolis-provider-template-python
     anolis-provider-sdk
     anolis-provider-sdk-python
     anolis-workbench

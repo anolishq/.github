@@ -61,6 +61,8 @@ REPOS=(
   anolis-provider-sdk-python
   anolis-provider-sim
   anolis-provider-sparkfun
+  anolis-provider-template-cpp
+  anolis-provider-template-python
   anolis-telemetry-export
   anolis-workbench
   anolishq.github.io
