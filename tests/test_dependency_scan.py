@@ -24,18 +24,25 @@ WORKFLOW = "dependency-scan.yml"
 TRIPLET = "x64-linux-static"
 
 STUB = r'''#!/usr/bin/env python3
-import json, os, sys
+import json, os, signal, sys
 args = sys.argv[1:]
 name = args[args.index("--output-file") + 1]
 formats = args[args.index("--format") + 1].split(",")
 print(f"There are {os.environ.get('STUB_DB_COUNT', '312000')} CVE entries in the database")
 if os.environ.get("STUB_CRASH"):
     sys.exit(int(os.environ["STUB_CRASH"]))
+if name == "cve-binary" and os.environ.get("STUB_KILL_STEP_ON_BINARY"):
+    # What a step timeout does: the runner kills the step's shell mid-run.
+    os.kill(os.getppid(), signal.SIGKILL)
+    sys.exit(137)
 cves = json.loads(os.environ.get("STUB_CVES", "[]"))
 if not (not cves and "--no-0-cve-report" in args):
     for fmt in formats:
         with open(f"{name}.{fmt}", "w") as f:
             f.write(json.dumps(cves) if fmt == "json" else "<html></html>")
+if name == "cve-binary" and os.environ.get("STUB_TRUNCATE_BINARY"):
+    with open(f"{name}.json", "w") as f:
+        f.write('[{"vendor": "openssl", "prod')
 sys.exit(1 if cves else 0)
 '''
 
@@ -60,13 +67,13 @@ class DependencyScanTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def scan_and_summarise(self, dep_count="1", **stub_env):
+    def scan_and_summarise(self, dep_count="1", scan_rc=0, **stub_env):
         """Run the scan step, then the summary step with the scan's outputs."""
         values = {"inputs.triplet": TRIPLET}
         outputs = {"deps": {"count": dep_count}}
         scan = run_step(WORKFLOW, "Run CVE scan (non-blocking)", self.work,
                         values, outputs, {**self.env, **stub_env})
-        self.assertEqual(scan.rc, 0, scan.log)
+        self.assertEqual(scan.rc, scan_rc, scan.log)
         outputs["scan"] = scan.outputs
         summary = run_step(WORKFLOW, "Build job summary", self.work, values, outputs, self.env)
         self.assertEqual(summary.rc, 0, summary.log)
@@ -121,7 +128,24 @@ class DependencyScanTest(unittest.TestCase):
         deps, binary = self.sections(summary.summary)
         for section in (deps, binary):
             self.assertNotIn("No known CVEs", section, summary.summary)
-            self.assertIn("did not run", section, summary.summary)
+            self.assertIn("the scan step did not finish", section, summary.summary)
+
+    def test_timeout_during_binary_scan_keeps_the_version_lookup_result(self):
+        # timeout-minutes kills the step; outputs written before that must survive.
+        scan, summary = self.scan_and_summarise(scan_rc=-9, STUB_KILL_STEP_ON_BINARY="1")
+        self.assertEqual(scan.outputs.get("deps_rc"), "0", scan.outputs)
+        deps, binary = self.sections(summary)
+        self.assertNotIn("CVE coverage is INCOMPLETE", summary)
+        self.assertIn("No known CVEs detected", deps, summary)
+        self.assertNotIn("No known CVEs", binary, summary)
+        self.assertIn("the scan step did not finish", binary, summary)
+
+    def test_unreadable_report_is_not_clean(self):
+        _, summary = self.scan_and_summarise(STUB_TRUNCATE_BINARY="1")
+        deps, binary = self.sections(summary)
+        self.assertIn("No known CVEs detected", deps, summary)
+        self.assertNotIn("No known CVEs", binary, summary)
+        self.assertIn("unreadable", binary, summary)
 
     def test_empty_result_with_unloaded_nvd_is_not_clean(self):
         _, summary = self.scan_and_summarise(STUB_DB_COUNT="5")

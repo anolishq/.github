@@ -378,7 +378,10 @@ Both cve-bin-tool runs write a JSON and an HTML report even when they find
 nothing, so the artifact holds a record of a clean scan too. A summary section
 with no report says why: the version lookup was skipped because no dependency
 is mapped to an NVD product, or cve-bin-tool failed (with its exit status), or
-the scan step did not run.
+the scan step did not finish (skipped, timed out or cancelled). A report that
+is not valid JSON is flagged as unreadable, not read as clean. Each run's
+result is recorded as soon as it is known, so a timeout during the binary scan
+still shows the version lookup's result.
 
 Each finding row gives product, version, CVE, severity and score, with the
 version vcpkg resolved. Confirm the CVE applies, then fix it by moving the
