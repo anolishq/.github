@@ -213,9 +213,18 @@ short SHA by default); the `metrics-json-path` output gives that file's path.
 
 `valgrind-leak.yml`, `fuzz.yml`, `clang-tidy-diff.yml` and
 `dependency-scan.yml` install their dependencies with the `setup-vcpkg` action.
-It caches vcpkg's built packages under a key made of the OS, architecture,
-triplet, compiler, vcpkg baseline, runner image and the repo's vcpkg manifest.
-Every job in a repo with the same triplet and compiler shares that key, and a
+It caches vcpkg's built packages under this key:
+
+```text
+vcpkg-bin-<os>-<arch>-<triplet>-cc<compiler hash>-<vcpkg baseline>-img<runner image version>-<manifest hash>
+```
+
+`<triplet>` is the `triplet` input as passed, not what the CMake preset
+installs. The compiler hash is vcpkg's, from `$CC`/`$CXX` (or `cc`/`c++`). The
+manifest hash covers `vcpkg.json`, `vcpkg-configuration.json` and `triplets/`.
+At one commit the baseline and manifest are the same for every job in a repo,
+so jobs on the same runner image with the same triplet and compiler share a
+key. A
 cache entry cannot be overwritten: the first job to save it keeps it.
 
 `valgrind-leak.yml`, `clang-tidy-diff.yml` and `dependency-scan.yml` restore
@@ -238,7 +247,7 @@ the `triplet` it passes to `setup-vcpkg` saves the wrong packages under it.
 `fuzz.yml` keeps saving by default (`cache-write: "true"`). It builds with
 Clang, so its key differs from every gcc build's and it is usually the only job
 that can save it. Pass `cache-write: "false"` when another Clang job with the
-same triplet builds more and saves that key.
+same triplet, on the same runner image, builds more and saves that key.
 
 ### valgrind-leak.yml
 

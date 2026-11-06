@@ -62,9 +62,12 @@ on:
       cache-write:
         description: >
           Whether this job saves the vcpkg binary cache: "true", or "false" (the
-          default) to restore it only. The cache key is shared by every job in
-          the caller with the same triplet and compiler, and the first job to
-          save it keeps it. This job installs only the dependencies of
+          default) to restore it only. setup-vcpkg's cache key is made of the
+          os, arch, `triplet` input, compiler hash, vcpkg baseline, runner image
+          and a hash of vcpkg.json, vcpkg-configuration.json and triplets/, so
+          at one commit every job in the caller on the same runner image with
+          the same triplet and compiler shares it, and the first job to save it
+          keeps it. This job installs only the dependencies of
           `build-preset`, usually part of what the caller's main build needs,
           and finishes early; if it saved a smaller set first, the main build
           could not save, and later jobs would build the rest from source.

@@ -4,8 +4,8 @@ Run: python3 -m unittest discover tests
 
 setup-vcpkg keys the binary cache by os, arch, triplet, compiler, vcpkg
 baseline, runner image and manifest, and saves it unless `cache-write` is
-"false". Every job in a caller with the same triplet and compiler shares one
-key, and a cache entry cannot be overwritten, so the first job to save it
+"false". At one commit, every job in a caller on the same runner image with
+the same triplet and compiler shares one key, and a cache entry cannot be overwritten, so the first job to save it
 keeps it. A reusable workflow that builds only part of the caller's
 dependencies finishes early, saves a cache without the expensive packages, and
 leaves the caller's full build unable to save ("Unable to reserve cache with

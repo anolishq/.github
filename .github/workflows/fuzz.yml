@@ -53,8 +53,9 @@ on:
           and dependency-scan, this job builds with Clang, and the compiler is
           part of the cache key, so it does not share a key with a repo's gcc
           builds and is usually the only job that can save its own. Pass
-          "false" when another Clang job in the caller with the same triplet
-          builds a superset of these dependencies and saves the key.
+          "false" when another Clang job in the caller with the same triplet,
+          on the same runner image, builds a superset of these dependencies
+          and saves the key.
         required: false
         default: "true"
         type: string
