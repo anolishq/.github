@@ -47,6 +47,20 @@ on:
         required: false
         default: ""
         type: string
+      cache-write:
+        description: >
+          Whether this job saves the vcpkg binary cache: "true", or "false" (the
+          default) to restore it only. The cache key is shared by every job in
+          the caller with the same triplet and compiler, and the first job to
+          save it keeps it. This job installs only the dependencies of
+          `configure-preset`, which need not match the caller's main build; if
+          it saved a smaller set first, the main build could not save, and
+          later jobs, this one included, would build the rest from source and
+          can hit its 30-minute timeout. Pass "true" only when no other job in
+          the caller saves this key.
+        required: false
+        default: "false"
+        type: string
 
 permissions:
   contents: read
@@ -78,6 +92,7 @@ jobs:
         uses: anolishq/.github/.github/actions/setup-vcpkg@0afd073b878c469f78a52f24020b1c3a49ae4fee # v2.7
         with:
           triplet: ${{ inputs.triplet }}
+          cache-write: ${{ inputs.cache-write }}
 
       - name: Setup pinned clang-tools
         uses: anolishq/.github/.github/actions/setup-clang-tools@9869a5f4bee7da9c7c1dc9bae033cd0137c4801d # setup-clang-tools

@@ -46,6 +46,18 @@ on:
         required: false
         default: "."
         type: string
+      cache-write:
+        description: >
+          Whether this job saves the vcpkg binary cache: "true" (the default),
+          or "false" to restore it only. Unlike valgrind-leak, clang-tidy-diff
+          and dependency-scan, this job builds with Clang, and the compiler is
+          part of the cache key, so it does not share a key with a repo's gcc
+          builds and is usually the only job that can save its own. Pass
+          "false" when another Clang job in the caller with the same triplet
+          builds a superset of these dependencies and saves the key.
+        required: false
+        default: "true"
+        type: string
 
 permissions:
   contents: read
@@ -78,6 +90,7 @@ jobs:
         uses: anolishq/.github/.github/actions/setup-vcpkg@0afd073b878c469f78a52f24020b1c3a49ae4fee # v2.7
         with:
           triplet: ${{ inputs.triplet }}
+          cache-write: ${{ inputs.cache-write }}
 
       - name: Configure
         working-directory: ${{ inputs.manifest-dir }}
