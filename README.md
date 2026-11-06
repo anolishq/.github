@@ -209,6 +209,46 @@ jobs:
 passes `tag: ${{ github.ref_name }}`, which is written to `metrics.json` (the
 short SHA by default); the `metrics-json-path` output gives that file's path.
 
+### The vcpkg binary cache
+
+`valgrind-leak.yml`, `fuzz.yml`, `clang-tidy-diff.yml` and
+`dependency-scan.yml` install their dependencies with the `setup-vcpkg` action.
+It caches vcpkg's built packages under this key:
+
+```text
+vcpkg-bin-<os>-<arch>-<triplet>-cc<compiler hash>-<vcpkg baseline>-img<runner image version>-<manifest hash>
+```
+
+`<triplet>` is the `triplet` input as passed, not what the CMake preset
+installs. The compiler hash is vcpkg's, from `$CC`/`$CXX` (or `cc`/`c++`). The
+manifest hash covers `vcpkg.json`, `vcpkg-configuration.json` and `triplets/`.
+At one commit the baseline and manifest are the same for every job in a repo,
+so jobs on the same runner image with the same triplet and compiler share a
+key. A
+cache entry cannot be overwritten: the first job to save it keeps it.
+
+`valgrind-leak.yml`, `clang-tidy-diff.yml` and `dependency-scan.yml` restore
+the cache but do not save it, unless the caller passes `cache-write: "true"`.
+Each installs the dependencies of one preset or feature set, often part of
+what a repo's main CI build needs, and the first two finish sooner. When one of
+them saved first, the main build could not save ("Unable to reserve cache with
+key ..."), and every later job got an exact hit on the partial cache and built
+the rest from source. On fluxgraph, after a runner image update, valgrind saved
+the key first; grpc then took about an hour to build in every job that needed
+it, so `clang-tidy-diff.yml` hit its 30-minute timeout on pull requests.
+
+So save the cache from the job that builds everything, which is what
+`setup-vcpkg` does by default when a repo's CI calls it directly. Pass
+`cache-write: "true"` to one of these workflows only when no other job in the
+repo saves its key, and check that the job saving the key builds the packages
+the other jobs under it need: a job whose preset builds another triplet than
+the `triplet` it passes to `setup-vcpkg` saves the wrong packages under it.
+
+`fuzz.yml` keeps saving by default (`cache-write: "true"`). It builds with
+Clang, so its key differs from every gcc build's and it is usually the only job
+that can save it. Pass `cache-write: "false"` when another Clang job with the
+same triplet, on the same runner image, builds more and saves that key.
+
 ### valgrind-leak.yml
 
 Builds a target with vcpkg and a CMake preset, then runs a command under
@@ -241,7 +281,8 @@ jobs:
 ```
 
 Other inputs: `triplet` (default `x64-linux-static`), `signal` (default
-`INT`), `manifest-dir` (default `.`).
+`INT`), `manifest-dir` (default `.`), `cache-write` (default `"false"`; see
+[The vcpkg binary cache](#the-vcpkg-binary-cache)).
 
 vcpkg, gRPC, protobuf and abseil produce known false positives, so each repo
 checks in its own `valgrind.supp`. Valgrind runs with `--gen-suppressions=all`,
@@ -276,7 +317,8 @@ jobs:
 ```
 
 Other inputs: `triplet` (default `x64-linux-static`), `manifest-dir` (default
-`.`).
+`.`), `cache-write` (default `"true"`; see
+[The vcpkg binary cache](#the-vcpkg-binary-cache)).
 
 ### clang-tidy-diff.yml
 
@@ -335,6 +377,7 @@ Inputs:
 | `paths` | `*.c *.cc *.cpp *.cxx *.h *.hh *.hpp *.hxx` | Space-separated git pathspecs to lint |
 | `blocking` | `false` | Fail the job on a finding on a changed line |
 | `apt-packages` | empty | Space-separated apt packages installed before configuring |
+| `cache-write` | `"false"` | Save the vcpkg binary cache; see [The vcpkg binary cache](#the-vcpkg-binary-cache) |
 
 What a caller must get right:
 
@@ -384,8 +427,9 @@ jobs:
 ```
 
 Other inputs: `overlay-triplets` (default `triplets`, used when the directory
-exists), `manifest-dir` (default `.`), `cve-bin-tool-ref`. No secrets are
-needed.
+exists), `manifest-dir` (default `.`), `cve-bin-tool-ref`, `cache-write`
+(default `"false"`; see [The vcpkg binary cache](#the-vcpkg-binary-cache)). No
+secrets are needed.
 
 vcpkg's SBOMs carry no CPE or purl, so generic SBOM scanners cannot match
 them. The workflow installs the dependency set with vcpkg, reads each port's
