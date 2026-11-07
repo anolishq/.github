@@ -88,7 +88,7 @@ jobs:
           python-version: "3.12"
 
       - name: Setup vcpkg
-        uses: anolishq/.github/.github/actions/setup-vcpkg@7a3a0624c056ea20fcb901968c482f9ed2ffb818 # v2.8
+        uses: anolishq/.github/.github/actions/setup-vcpkg@721e8a07128cd274efe6a17e0a51c0a9b1caf6b9 # v2.9
         with:
           triplet: ${{ inputs.triplet }}
           cache-write: ${{ inputs.cache-write }}
