@@ -1,0 +1,35 @@
+name: Require needed jobs passed
+description: >
+  The check behind a repo's required `ok` job. Passes only if every needed job
+  ended as `success` or `skipped`, so a job that never ran (`abandoned`) or any
+  result added later fails it rather than being read as green.
+
+inputs:
+  results:
+    description: "The needed jobs' results, separated by spaces: join needs.*.result with a space."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Require every needed job passed
+      shell: bash
+      env:
+        RESULTS: ${{ inputs.results }}
+      run: |
+        set -euo pipefail
+        if [ -z "${RESULTS// /}" ]; then
+          echo "::error::no job results were given"
+          exit 1
+        fi
+        status=0
+        for result in $RESULTS; do
+          case "$result" in
+            success | skipped) ;;
+            *)
+              echo "::error::a needed job ended as '$result'"
+              status=1
+              ;;
+          esac
+        done
+        exit "$status"

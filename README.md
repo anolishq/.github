@@ -74,13 +74,16 @@ jobs:
       # ...the repo's other jobs
     runs-on: ubuntu-latest
     steps:
-      - name: Fail if any required job failed or was cancelled
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
+      - uses: anolishq/.github/.github/actions/require-needs-passed@<sha> # v2
+        with:
+          results: ${{ join(needs.*.result, ' ') }}
 ```
 
-A repo may gate the `docs` job on a path filter. A skipped job does not fail
-`ok`.
+`require-needs-passed` passes only if every needed job ended as `success` or
+`skipped`. Do not write this as a check for `failure` or `cancelled`: GitHub can
+report a job that never ran as `abandoned`, and that check passes it
+(anolishq/.github#168). A repo may gate the `docs` job on a path filter, and a
+skipped job does not fail `ok`.
 
 Its jobs:
 
