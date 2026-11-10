@@ -253,6 +253,14 @@ Clang, so its key differs from every gcc build's and it is usually the only job
 that can save it. Pass `cache-write: "false"` when another Clang job with the
 same triplet, on the same runner image, builds more and saves that key.
 
+Pull request runs restore the cache but never save it, whatever `cache-write`
+says. Only that pull request can read what it saves, but the entry counts
+against the repository's cache limit, and going over the limit evicts entries
+that other runs depend on. The cost is that a pull request whose key has no
+entry on the default branch, such as one changing `vcpkg.json` or the baseline,
+builds what is missing on every push. Its job still reuses packages between
+builds, and the entry is saved once the change reaches the default branch.
+
 ### valgrind-leak.yml
 
 Builds a target with vcpkg and a CMake preset, then runs a command under
