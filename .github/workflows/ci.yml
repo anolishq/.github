@@ -227,9 +227,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Evaluate job results
         run: |
           echo "Job results: ${{ toJSON(needs.*.result) }}"
-      - name: Fail if any required job failed or was cancelled
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
+      - uses: ./.github/actions/require-needs-passed
+        with:
+          results: ${{ join(needs.*.result, ' ') }}
