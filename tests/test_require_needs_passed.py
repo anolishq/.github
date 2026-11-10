@@ -41,6 +41,10 @@ class RequireNeedsPassedTest(unittest.TestCase):
             with self.subTest(repr(empty)):
                 self.assertEqual(run_action(empty).returncode, 1)
 
+    def test_the_script_reads_the_action_input(self):
+        step = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["runs"]["steps"][0]
+        self.assertEqual(step["env"]["RESULTS"], "${{ inputs.results }}")
+
     def test_this_repo_ok_job_uses_the_action(self):
         job = yaml.safe_load(CI.read_text(encoding="utf-8"))["jobs"]["ok"]
         step = next(s for s in job["steps"] if s.get("uses") == "./.github/actions/require-needs-passed")

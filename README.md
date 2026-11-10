@@ -82,8 +82,9 @@ jobs:
 `require-needs-passed` passes only if every needed job ended as `success` or
 `skipped`. Do not write this as a check for `failure` or `cancelled`: GitHub can
 report a job that never ran as `abandoned`, and that check passes it
-(anolishq/.github#168). A repo may gate the `docs` job on a path filter, and a
-skipped job does not fail `ok`.
+(anolishq/.github#168). List every job in `needs`: the action sees only direct
+needs, so a job skipped because an unlisted job failed would pass. A repo may
+gate the `docs` job on a path filter, and a skipped job does not fail `ok`.
 
 Its jobs:
 
