@@ -37,6 +37,8 @@ inputs:
       build. A read-only job restores the superset cache but never saves, so the
       faster subset job cannot clobber the superset cache under the shared key
       (which would otherwise drop the expensive packages and force rebuilds).
+      Pull request runs never save, whatever this says: see the note on the
+      restore and save steps.
     required: false
     default: "true"
 
@@ -225,9 +227,14 @@ runs:
     # so it expands to empty and the key stops rotating. On self-hosted runners
     # $ImageVersion is unset and resolves to `imgunknown` — fine, a self-managed
     # toolchain is stable and needs no ABI rotation.
-    # Writer jobs (cache-write=true, default) restore AND save the cache.
+    # Writer jobs (cache-write=true, default) restore AND save the cache, except
+    # on pull requests. A pull request's entry can be read only by that pull
+    # request, but it counts against the repository's cache limit, so saving
+    # one evicts the entries on the default branch that every other run
+    # restores. vcpkg itself stays in readwrite mode there (see Configure
+    # environment), so builds later in the same job still reuse its packages.
     - name: Restore + save vcpkg binary cache (writer)
-      if: inputs.cache-write == 'true'
+      if: inputs.cache-write == 'true' && github.event_name != 'pull_request'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
@@ -235,9 +242,10 @@ runs:
         restore-keys: ${{ steps.key.outputs.restore-keys }}
 
     # Reader jobs (cache-write=false) restore only — no post-save — so a subset
-    # build cannot overwrite the shared key with an incomplete cache.
+    # build cannot overwrite the shared key with an incomplete cache. Pull
+    # request runs take this path too.
     - name: Restore vcpkg binary cache (read-only)
-      if: inputs.cache-write != 'true'
+      if: inputs.cache-write != 'true' || github.event_name == 'pull_request'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
         path: ${{ github.workspace }}/.vcpkg-binary-cache
