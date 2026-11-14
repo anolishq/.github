@@ -28,6 +28,10 @@ PROGRAMS = {
     "clean": "#include <stdlib.h>\nint main(void) { free(malloc(16)); return 0; }\n",
     "leak": "#include <stdio.h>\n#include <stdlib.h>\n"
             "int main(void) { void *p = malloc(64); printf(\"%p\\n\", p); p = 0; return 0; }\n",
+    # Runs until a signal stops it, and allocates nothing. The host's `sleep` is
+    # not a neutral stand-in: uutils' sleep, the default on Ubuntu 26.04, leaves
+    # 8 bytes definitely lost when SIGINT stops it under valgrind.
+    "wait": "#include <unistd.h>\nint main(void) { for (;;) pause(); }\n",
 }
 
 STUB_VALGRIND = r'''#!/usr/bin/env bash
@@ -120,10 +124,13 @@ class ValgrindLeakTest(unittest.TestCase):
     @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
     def test_target_killed_by_duration_signal_kill_fails_enforce(self):
         # SIGKILL stops valgrind itself, so it writes no leak summary.
-        sleep = shutil.which("sleep")
-        run, summary, enforce = self.check(f"{sleep} 60", duration="2s", signal="KILL")
+        run, summary, enforce = self.check(self.build("wait"), duration="2s", signal="KILL")
         self.assert_not_checked(summary, enforce)
-        self.assertEqual(run.outputs["rc"], "137")
+        # GNU timeout exits 137 (128+9) after sending KILL. uutils' timeout 0.10,
+        # the default on Ubuntu 26.04, exits 124; uutils changed it to 137 in
+        # a185142 ("timeout: exit with 128+9 when the timeout signal is KILL").
+        # The workflow only reports this code, so either means the run was stopped.
+        self.assertIn(run.outputs["rc"], ("124", "137"))
 
     @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
     def test_non_executable_target_fails_enforce(self):
@@ -160,8 +167,7 @@ class ValgrindLeakTest(unittest.TestCase):
     @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
     def test_target_stopped_by_duration_signal_still_counts_as_run(self):
         # `duration` stops a long-running target with SIGINT on purpose.
-        sleep = shutil.which("sleep")
-        _, summary, enforce = self.check(f"{sleep} 60", duration="2s")
+        _, summary, enforce = self.check(self.build("wait"), duration="2s")
         self.assertEqual(enforce.rc, 0, enforce.log)
         self.assertIn("No 'definitely lost' leaks", summary)
 
