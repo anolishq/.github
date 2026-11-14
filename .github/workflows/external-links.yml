@@ -37,6 +37,7 @@ env:
     anolis-provider-template-python
     anolis-provider-sdk
     anolis-provider-sdk-python
+    anolis-provider-sdk-rust
     anolis-workbench
     anolis-telemetry-export
     anolis-projects

@@ -59,6 +59,7 @@ REPOS=(
   anolis-provider-ezo
   anolis-provider-sdk
   anolis-provider-sdk-python
+  anolis-provider-sdk-rust
   anolis-provider-sim
   anolis-provider-sparkfun
   anolis-provider-template-cpp
