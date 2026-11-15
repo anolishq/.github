@@ -57,6 +57,7 @@ REPOS=(
   anolis-provider-adafruit
   anolis-provider-bread
   anolis-provider-ezo
+  anolis-provider-modulino
   anolis-provider-sdk
   anolis-provider-sdk-python
   anolis-provider-sdk-rust
