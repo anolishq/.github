@@ -64,6 +64,7 @@ REPOS=(
   anolis-provider-sparkfun
   anolis-provider-template-cpp
   anolis-provider-template-python
+  anolis-provider-template-rust
   anolis-telemetry-export
   anolis-workbench
   anolishq.github.io
