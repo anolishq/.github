@@ -35,6 +35,7 @@ env:
     anolis-provider-sparkfun
     anolis-provider-template-cpp
     anolis-provider-template-python
+    anolis-provider-template-rust
     anolis-provider-sdk
     anolis-provider-sdk-python
     anolis-provider-sdk-rust
