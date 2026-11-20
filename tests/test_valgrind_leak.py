@@ -165,6 +165,19 @@ class ValgrindLeakTest(unittest.TestCase):
         self.assertIn("64 bytes definitely lost", summary)
 
     @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
+    def test_suppressions_file_is_applied(self):
+        # #167: the step built the --suppressions argument and never passed it,
+        # so a leak the caller's file suppresses still failed the job.
+        (self.work / "valgrind.supp").write_text(
+            "{\n   leak_in_main\n   Memcheck:Leak\n   match-leak-kinds: definite\n"
+            "   fun:malloc\n   fun:main\n}\n")
+        run, summary, enforce = self.check(self.build("leak"))
+        self.assertIn("Using suppressions: valgrind.supp", run.log)
+        self.assertEqual(run.outputs["definitely_lost"], "0")
+        self.assertEqual(enforce.rc, 0, enforce.log)
+        self.assertIn("No 'definitely lost' leaks", summary)
+
+    @unittest.skipUnless(HAVE_TOOLS or IN_CI, "needs valgrind and a C compiler")
     def test_target_stopped_by_duration_signal_still_counts_as_run(self):
         # `duration` stops a long-running target with SIGINT on purpose.
         _, summary, enforce = self.check(self.build("wait"), duration="2s")

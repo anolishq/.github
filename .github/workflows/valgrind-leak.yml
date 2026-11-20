@@ -142,6 +142,7 @@ jobs:
             --leak-check=full --show-leak-kinds=all --track-origins=yes \
             --errors-for-leak-kinds=definite --error-exitcode=42 \
             --gen-suppressions=all --log-file=valgrind.log \
+            "${supp[@]}" \
             ${{ inputs.run }}
           rc=$?
           echo "::endgroup::"
