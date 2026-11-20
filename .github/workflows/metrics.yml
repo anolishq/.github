@@ -41,13 +41,19 @@ jobs:
           sudo apt-get update && sudo apt-get install -y cloc tree jq
 
       - name: Collect metrics
+        env:
+          # Through env:, so the input is data to the script, never shell.
+          EXCLUDES: ${{ inputs.exclude-dirs }}
         run: |
-          EXCLUDES="${{ inputs.exclude-dirs }}"
           mkdir -p metrics
 
-          # tokei
-          tokei --exclude "$EXCLUDES" --exclude "package-lock.json" --output json > metrics/tokei.json
-          tokei --exclude "$EXCLUDES" --exclude "package-lock.json" > metrics/tokei.txt
+          # tokei takes each --exclude as one pattern and does not split on
+          # commas, so pass one per listed directory (#145).
+          IFS=',' read -ra exclude_dirs <<< "$EXCLUDES"
+          tokei_excludes=()
+          for dir in "${exclude_dirs[@]}"; do tokei_excludes+=(--exclude "$dir"); done
+          tokei "${tokei_excludes[@]}" --exclude "package-lock.json" --output json > metrics/tokei.json
+          tokei "${tokei_excludes[@]}" --exclude "package-lock.json" > metrics/tokei.txt
 
           # cloc
           cloc . --exclude-dir=$EXCLUDES --json --out=metrics/cloc.json
