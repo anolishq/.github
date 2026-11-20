@@ -62,6 +62,19 @@ class CacheWriteInputTest(unittest.TestCase):
                 self.assertIs(spec.get("required", False), False)
                 self.assertEqual(spec.get("default"), default)
 
+    # A cold cache (a new runner image, before a writer on that image has saved)
+    # makes clang-tidy-diff build every dependency from source, which takes
+    # longer than 30 minutes for a caller with protobuf. The caller sets the
+    # limit; the default keeps every existing caller at 30.
+    def test_clang_tidy_diff_timeout_is_an_input_defaulting_to_30(self):
+        doc = load(WORKFLOWS / "clang-tidy-diff.yml")
+        spec = triggers(doc)["workflow_call"]["inputs"].get("timeout-minutes")
+        self.assertIsNotNone(spec)
+        self.assertEqual(spec.get("type"), "number")
+        self.assertIs(spec.get("required", False), False)
+        self.assertEqual(spec.get("default"), 30)
+        self.assertEqual(doc["jobs"]["clang-tidy-diff"]["timeout-minutes"], "${{ inputs.timeout-minutes }}")
+
     def test_setup_vcpkg_gets_the_cache_write_input(self):
         for name in CACHE_WRITE_DEFAULT:
             with self.subTest(workflow=name):

@@ -399,8 +399,11 @@ What a caller must get right:
   `binaryDir` adds a tidy preset that keeps it, with every optional component
   enabled so all sources are in the database.
 - `triplet` matches the repo's CI triplet. Otherwise the job misses the warm
-  vcpkg cache, builds the dependencies from source, and can hit its 30-minute
-  timeout.
+  vcpkg cache, builds the dependencies from source, and can hit its timeout
+  (`timeout-minutes`, 30 by default). A cold cache does the same after a
+  runner image update, until a writer on the new image saves; a caller whose
+  dependencies take longer than that to build passes a larger
+  `timeout-minutes`.
 - A changed header borrows the compile command of the translation unit
   clang-tidy judges closest by name and path. If that unit lacks the header's
   include root, such as a generated `*.pb.cc`, the header's includes fail with

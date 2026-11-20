@@ -59,11 +59,20 @@ on:
           `configure-preset`, which need not match the caller's main build; if
           it saved a smaller set first, the main build could not save, and
           later jobs, this one included, would build the rest from source and
-          can hit its 30-minute timeout. Pass "true" only when no other job in
-          the caller saves this key.
+          can hit its timeout. Pass "true" only when no other job in the caller
+          saves this key.
         required: false
         default: "false"
         type: string
+      timeout-minutes:
+        description: >
+          The job's time limit. The default fits a warm vcpkg cache. With a cold
+          one (a new runner image, before a writer on that image has saved) the
+          job builds every dependency from source first, which takes longer than
+          30 minutes for a caller with protobuf; such a caller passes more.
+        required: false
+        default: 30
+        type: number
 
 permissions:
   contents: read
@@ -72,7 +81,7 @@ jobs:
   clang-tidy-diff:
     name: clang-tidy (changed lines)
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
