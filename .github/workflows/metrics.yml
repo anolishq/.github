@@ -56,7 +56,9 @@ jobs:
           tokei "${tokei_excludes[@]}" --exclude "package-lock.json" > metrics/tokei.txt
 
           # cloc
-          cloc . --exclude-dir=$EXCLUDES --json --out=metrics/cloc.json
+          # One argument: cloc splits the comma list itself, and an unquoted
+          # expansion would split a listed directory with a space in its name.
+          cloc . --exclude-dir="$EXCLUDES" --json --out=metrics/cloc.json
 
           # tree
           TREE_EXCLUDE=$(echo "$EXCLUDES" | tr ',' '|')
