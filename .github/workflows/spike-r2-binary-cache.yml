@@ -1,0 +1,213 @@
+name: Spike R2 binary cache
+
+# #175, part of #174. Runs only on this spike branch; nothing merges.
+# Answers: does vcpkg's x-aws provider write to and restore from R2 on each
+# runner image the vcpkg repos use, are the AWS CLI's checksum settings in the
+# way, is the CLI on each image, how a read-only token's write fails, and how
+# long one large package (grpc) takes to upload and download.
+on:
+  push:
+    branches: [spike/r2-binary-cache]
+    paths: [.github/workflows/spike-r2-binary-cache.yml]
+
+permissions:
+  contents: read
+
+env:
+  VCPKG_COMMIT: f3e10653cc27d62a37a3763cd84b38bca07c6075 # anolis's baseline
+  AWS_ENDPOINT_URL_S3: ${{ vars.VCPKG_R2_ENDPOINT }}
+  AWS_DEFAULT_REGION: auto
+  BUCKET: ${{ vars.VCPKG_R2_BUCKET }}
+  VCPKG_DISABLE_METRICS: "1"
+
+jobs:
+  roundtrip:
+    name: zlib round trip (${{ matrix.triplet }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-26.04
+            triplet: x64-linux
+          - runner: windows-2025
+            triplet: x64-windows
+          - runner: ubuntu-24.04-arm
+            triplet: arm64-linux
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_R2_WRITE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_R2_WRITE_SECRET_ACCESS_KEY }}
+      PREFIX: s3://${{ vars.VCPKG_R2_BUCKET }}/spike/${{ github.run_id }}/${{ matrix.triplet }}
+    steps:
+      - name: Image and AWS CLI
+        run: |
+          echo "ImageOS=${ImageOS:-?} ImageVersion=${ImageVersion:-?}"
+          if command -v aws; then
+            aws --version
+          else
+            echo "AWS CLI: not on this image"
+            [[ "$RUNNER_OS" == Linux ]] || exit 1
+            start=$(date +%s)
+            arch=$(uname -m)
+            curl -sSfL "https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o "$RUNNER_TEMP/awscli.zip"
+            unzip -q "$RUNNER_TEMP/awscli.zip" -d "$RUNNER_TEMP/awscli"
+            sudo "$RUNNER_TEMP/awscli/aws/install" >/dev/null
+            echo "AWS CLI install took $(( $(date +%s) - start )) s"
+            aws --version
+          fi
+
+      - name: Clone vcpkg at the baseline
+        run: |
+          git init -q "$RUNNER_TEMP/vcpkg"
+          cd "$RUNNER_TEMP/vcpkg"
+          git fetch -q --depth 1 https://github.com/microsoft/vcpkg "$VCPKG_COMMIT"
+          git checkout -q FETCH_HEAD
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cmd //c "bootstrap-vcpkg.bat -disableMetrics"
+          else
+            ./bootstrap-vcpkg.sh -disableMetrics
+          fi
+          echo "VCPKG=$(pwd)/vcpkg" >> "$GITHUB_ENV"
+
+      # install <name> <prefix> <mode> <extra env...>: a classic-mode install
+      # of zlib in fresh install, buildtree and package roots, logged to
+      # <name>.log, with its exit code in <name>.rc.
+      - name: Define the install helper
+        run: |
+          cat > "$RUNNER_TEMP/install.sh" <<'EOF'
+          set -uo pipefail
+          name=$1 prefix=$2 mode=$3; shift 3
+          root="$RUNNER_TEMP/$name"
+          cd "$RUNNER_TEMP"
+          start=$(date +%s)
+          env "$@" "$VCPKG" install "zlib:$TRIPLET" --classic \
+            --x-install-root="$root/installed" --x-buildtrees-root="$root/bt" \
+            --x-packages-root="$root/pk" \
+            "--binarysource=clear;x-aws,$prefix/,$mode" 2>&1 | tee "$RUNNER_TEMP/$name.log"
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > "$RUNNER_TEMP/$name.rc"
+          echo "== $name: exit $rc in $(( $(date +%s) - start )) s"
+          grep -iE "restored|stored binaries|upload|x-aws|checksum|error|warning" "$RUNNER_TEMP/$name.log" | head -20 || true
+          exit 0
+          EOF
+          echo "TRIPLET=${{ matrix.triplet }}" >> "$GITHUB_ENV"
+
+      - name: Write with the CLI's default checksums
+        run: bash "$RUNNER_TEMP/install.sh" write-default "$PREFIX/default" readwrite
+
+      - name: Restore it in a clean tree (default checksums)
+        run: bash "$RUNNER_TEMP/install.sh" read-default "$PREFIX/default" read
+
+      - name: Write with checksums when_required
+        run: >-
+          bash "$RUNNER_TEMP/install.sh" write-relaxed "$PREFIX/relaxed" readwrite
+          AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+
+      - name: Restore it in a clean tree (when_required)
+        run: >-
+          bash "$RUNNER_TEMP/install.sh" read-relaxed "$PREFIX/relaxed" read
+          AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+
+      - name: Write with the read-only token
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_R2_READ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_R2_READ_SECRET_ACCESS_KEY }}
+        run: bash "$RUNNER_TEMP/install.sh" write-readonly "$PREFIX/readonly" readwrite
+
+      - name: Objects written, and the summary
+        if: always()
+        run: |
+          aws s3 ls --recursive "$PREFIX/" || echo "(listing failed: exit $?)"
+          {
+            echo "### ${{ matrix.triplet }} on ${{ matrix.runner }}"
+            echo
+            echo "AWS CLI: \`$(aws --version 2>&1)\`"
+            echo
+            echo "| Step | Exit | Restored | Stored |"
+            echo "| --- | --- | --- | --- |"
+            for n in write-default read-default write-relaxed read-relaxed write-readonly; do
+              rc=$(cat "$RUNNER_TEMP/$n.rc" 2>/dev/null || echo "-")
+              r=$(grep -m1 -oiE "Restored [0-9]+ package\(s\)[^.]*" "$RUNNER_TEMP/$n.log" 2>/dev/null || echo "no")
+              s=$(grep -m1 -oiE "Stored binaries in [0-9]+ destinations?[^.]*" "$RUNNER_TEMP/$n.log" 2>/dev/null || echo "no")
+              echo "| $n | $rc | $r | $s |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+  grpc:
+    name: grpc upload and download (x64-linux-static)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_R2_WRITE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_R2_WRITE_SECRET_ACCESS_KEY }}
+      PREFIX: s3://${{ vars.VCPKG_R2_BUCKET }}/spike/${{ github.run_id }}/grpc
+    steps:
+      - name: AWS CLI, and whether the default checksums work
+        run: |
+          aws --version
+          echo probe > "$RUNNER_TEMP/probe.txt"
+          if aws s3 cp "$RUNNER_TEMP/probe.txt" "$PREFIX/probe.txt"; then
+            echo "Default checksums: a put works"
+          else
+            echo "Default checksums: a put fails; using when_required"
+            echo "AWS_REQUEST_CHECKSUM_CALCULATION=when_required" >> "$GITHUB_ENV"
+            echo "AWS_RESPONSE_CHECKSUM_VALIDATION=when_required" >> "$GITHUB_ENV"
+          fi
+
+      - name: Clone vcpkg at the baseline, with the repos' static triplet
+        run: |
+          git init -q "$RUNNER_TEMP/vcpkg"
+          cd "$RUNNER_TEMP/vcpkg"
+          git fetch -q --depth 1 https://github.com/microsoft/vcpkg "$VCPKG_COMMIT"
+          git checkout -q FETCH_HEAD
+          ./bootstrap-vcpkg.sh -disableMetrics
+          mkdir -p "$RUNNER_TEMP/triplets"
+          printf '%s\n' 'set(VCPKG_TARGET_ARCHITECTURE x64)' 'set(VCPKG_CRT_LINKAGE dynamic)' \
+            'set(VCPKG_LIBRARY_LINKAGE static)' 'set(VCPKG_CMAKE_SYSTEM_NAME Linux)' \
+            > "$RUNNER_TEMP/triplets/x64-linux-static.cmake"
+
+      - name: Build grpc and upload it
+        run: |
+          cd "$RUNNER_TEMP"
+          start=$(date +%s)
+          ./vcpkg/vcpkg install grpc:x64-linux-static --classic --overlay-triplets=triplets \
+            --x-install-root=a/installed --x-buildtrees-root=a/bt --x-packages-root=a/pk \
+            "--binarysource=clear;x-aws,$PREFIX/,readwrite" 2>&1 | tee build.log
+          echo "== build and upload: $(( $(date +%s) - start )) s"
+          grep -iE "stored binaries|uploading|elapsed" build.log | tail -40
+
+      - name: Restore grpc in a clean tree
+        run: |
+          cd "$RUNNER_TEMP"
+          start=$(date +%s)
+          ./vcpkg/vcpkg install grpc:x64-linux-static --classic --overlay-triplets=triplets \
+            --x-install-root=b/installed --x-buildtrees-root=b/bt --x-packages-root=b/pk \
+            "--binarysource=clear;x-aws,$PREFIX/,read" 2>&1 | tee restore.log
+          echo "== restore: $(( $(date +%s) - start )) s"
+          grep -iE "restored|building" restore.log | head -20
+          aws s3 ls --recursive --summarize "$PREFIX/" | tail -3
+
+  cleanup:
+    name: Delete the spike's objects
+    needs: [roundtrip, grpc]
+    if: always()
+    runs-on: ubuntu-26.04
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.VCPKG_R2_WRITE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.VCPKG_R2_WRITE_SECRET_ACCESS_KEY }}
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+    steps:
+      - name: Delete spike/${{ github.run_id }}/
+        run: |
+          aws s3 rm --recursive "s3://$BUCKET/spike/${{ github.run_id }}/"
+          left=$(aws s3 ls --recursive "s3://$BUCKET/spike/${{ github.run_id }}/" | wc -l)
+          echo "objects left under the run's prefix: $left"
+          [[ "$left" == 0 ]]
