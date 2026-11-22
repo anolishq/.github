@@ -1,8 +1,10 @@
 name: Setup vcpkg
 description: >
-  Clone and bootstrap vcpkg with working binary caching via actions/cache.
-  Replaces lukka/run-vcpkg whose x-gha binary cache provider was removed
-  from vcpkg in April 2025.
+  Clone and bootstrap vcpkg, with a binary cache in the org's Cloudflare R2
+  bucket: vcpkg's x-aws provider, one archive per package named by vcpkg's ABI
+  hash. A push or workflow_dispatch on the default branch, or a schedule, reads
+  and writes with the write token; every other run reads with the read token;
+  a run with no token (a fork pull request) builds without the remote cache.
 
   By default the vcpkg tool commit is derived from the consuming repo's
   vcpkg-configuration.json `default-registry.baseline`, so the tool commit
@@ -21,40 +23,59 @@ inputs:
     description: "Path to vcpkg-configuration.json used to derive the commit when vcpkg-commit is empty."
     required: false
     default: "vcpkg-configuration.json"
+  r2-endpoint:
+    description: "R2 S3 endpoint, https://<account>.r2.cloudflarestorage.com. Pass vars.VCPKG_R2_ENDPOINT."
+    required: false
+    default: ""
+  r2-bucket:
+    description: "R2 bucket. Pass vars.VCPKG_R2_BUCKET."
+    required: false
+    default: ""
+  r2-read-access-key-id:
+    description: "Read token's access key id. Pass secrets.VCPKG_R2_READ_ACCESS_KEY_ID."
+    required: false
+    default: ""
+  r2-read-secret-access-key:
+    description: "Read token's secret. Pass secrets.VCPKG_R2_READ_SECRET_ACCESS_KEY."
+    required: false
+    default: ""
+  r2-write-access-key-id:
+    description: >
+      Write token's access key id. Pass secrets.VCPKG_R2_WRITE_ACCESS_KEY_ID.
+      Used only on a push or workflow_dispatch on the default branch, or a schedule.
+    required: false
+    default: ""
+  r2-write-secret-access-key:
+    description: "Write token's secret. Pass secrets.VCPKG_R2_WRITE_SECRET_ACCESS_KEY."
+    required: false
+    default: ""
   triplet:
-    description: "Target triplet (used in cache key for partition isolation)"
-    required: true
+    description: "Deprecated and ignored since v3: the cache is keyed by vcpkg's ABI hash. Accepted for one release."
+    required: false
+    default: ""
+  cache-write:
+    description: "Deprecated and ignored since v3: the event decides whether a run writes. Accepted for one release."
+    required: false
+    default: ""
   token:
     description: "GitHub token (reserved for future NuGet integration)"
     required: false
     default: ${{ github.token }}
-  cache-write:
-    description: >
-      Whether this job may WRITE (save) the vcpkg binary cache. Default "true".
-      Set "false" for a build variant whose dependency closure is a SUBSET of
-      another variant that shares the same cache key (same os/arch/triplet/
-      baseline/manifest) — e.g. a FluxGraph-OFF build alongside a FluxGraph-ON
-      build. A read-only job restores the superset cache but never saves, so the
-      faster subset job cannot clobber the superset cache under the shared key
-      (which would otherwise drop the expensive packages and force rebuilds).
-      Pull request runs never save, whatever this says: see the note on the
-      restore and save steps.
-    required: false
-    default: "true"
 
 outputs:
-  compiler-hash:
-    description: >
-      vcpkg's compiler hash for the compilers this job resolves ($CC/$CXX, else
-      cc/c++), or "msvc" on Windows. Part of the cache key.
-    value: ${{ steps.compiler.outputs.hash }}
-  cache-key:
-    description: "The binary-cache key this job restores (and, as a writer, saves)."
-    value: ${{ steps.key.outputs.key }}
+  binary-cache-mode:
+    description: "readwrite, read or none: what this run does with the R2 binary cache."
+    value: ${{ steps.cache.outputs.mode }}
 
 runs:
   using: composite
   steps:
+    - name: Warn about deprecated inputs
+      if: inputs.triplet != '' || inputs.cache-write != ''
+      shell: bash
+      run: |
+        echo "::warning title=setup-vcpkg v3::'triplet' and 'cache-write' are ignored since v3 and will be removed; drop them from this step."
+
     - name: Resolve vcpkg commit
       id: resolve
       shell: bash
@@ -67,8 +88,7 @@ runs:
           cfg="${{ inputs.vcpkg-config }}"
           # The caller may check the repo out under a `path:` subdirectory, so the
           # config is not necessarily at the workspace root. If the configured path
-          # does not exist, discover it under the workspace (mirrors the cache key's
-          # `**/vcpkg-configuration.json` glob). The vcpkg clone does not exist yet at
+          # does not exist, discover it under the workspace. The vcpkg clone does not exist yet at
           # this point, but exclude its path defensively.
           if [[ ! -f "$cfg" ]]; then
             cfg="$(find "${{ github.workspace }}" -maxdepth 4 -name vcpkg-configuration.json -not -path '*/vcpkg/*' 2>/dev/null | sort | head -1)"
@@ -85,172 +105,6 @@ runs:
           exit 1
         fi
         echo "commit=$commit" >> "$GITHUB_OUTPUT"
-
-    - name: Resolve runner image version
-      id: img
-      shell: bash
-      run: |
-        set -euo pipefail
-        # $ImageVersion is exported into every GitHub-hosted runner's process
-        # environment, but it is NOT exposed through the `${{ env.* }}` expression
-        # context (which only holds workflow/job/step-defined vars). A `run:` step
-        # is the only place it can be read — hence this output. It changes whenever
-        # GitHub rotates the runner image (and with it the MSVC/gcc toolchain), so
-        # feeding it into the binary-cache key rotates the key on ABI-affecting
-        # compiler bumps. See the cache-key comment below.
-        echo "Resolved runner image version: ${ImageVersion:-unknown} (ImageOS=${ImageOS:-unknown})"
-        echo "version=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
-
-    - name: Resolve compiler hash
-      id: compiler
-      shell: bash
-      run: |
-        set -euo pipefail
-        # vcpkg's per-package ABI includes a compiler hash that its
-        # scripts/detect_compiler computes as sha1(sha1(C compiler) .
-        # sha1(C++ compiler)), for the compilers CMake resolves: $CC/$CXX when
-        # set (first word, as CMake reads them), else cc/c++. So a job that sets
-        # CC=clang builds different packages from a gcc job with the same
-        # triplet. Without this in the key the two share an entry: whichever saves
-        # first leaves the other with an exact hit on packages it cannot use, so
-        # it rebuilds every run and never saves. Compute the same hash here.
-        # $CC/$CXX must be set at job or workflow level so they also reach the
-        # step that runs vcpkg; a value set only on that step is not seen here.
-        # On Windows vcpkg finds MSVC itself, and the image version already in
-        # the key covers it.
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          echo "Windows: compiler hash not computed (MSVC; covered by the image version)"
-          echo "hash=msvc" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-        resolve() {
-          local word="${1%% *}" path
-          path="$(command -v -- "$word")" \
-            || { echo "::error::compiler '$word' (from \$CC/\$CXX or the cc/c++ default) is not on PATH; install it before this step" >&2; return 1; }
-          echo "$path"
-        }
-        cc="$(resolve "${CC:-cc}")"
-        cxx="$(resolve "${CXX:-c++}")"
-        c_hash="$(sha1sum "$cc" | cut -d' ' -f1)"
-        cxx_hash="$(sha1sum "$cxx" | cut -d' ' -f1)"
-        hash="$(printf '%s%s' "$c_hash" "$cxx_hash" | sha1sum | cut -d' ' -f1)"
-        echo "C compiler:   $cc -> $(readlink -f "$cc")"
-        echo "C++ compiler: $cxx -> $(readlink -f "$cxx")"
-        echo "Resolved compiler hash: $hash"
-        echo "hash=$hash" >> "$GITHUB_OUTPUT"
-
-    - name: Resolve vcpkg manifest input hash
-      id: inputs
-      shell: bash
-      run: |
-        set -euo pipefail
-        # Hash ONLY this consumer's vcpkg manifest inputs, anchored to the dir
-        # holding its vcpkg-configuration.json. The old key used
-        # hashFiles('**/vcpkg.json', '**/vcpkg-configuration.json', '**/triplets/**'),
-        # whose `**/` globs span the WHOLE workspace — so a job that checks out an
-        # unrelated repo into a subdir (e.g. provider-sim's FluxGraph-ON lane checks
-        # out fluxgraph into ./fluxgraph) folds that repo's files into the key. The
-        # ON/OFF variants then compute different keys and the cache-write subset
-        # protection silently disengages (anolishq/.github#97). A workspace-rooted
-        # glob cannot exclude a nested checkout, so hash an explicit file set.
-        cfg="${{ inputs.vcpkg-config }}"
-        if [[ ! -f "$cfg" ]]; then
-          cfg="$(find "${{ github.workspace }}" -maxdepth 4 -name vcpkg-configuration.json -not -path '*/vcpkg/*' 2>/dev/null | sort | head -1)"
-        fi
-        # NOTE: this discovery is identical to the `resolve` step above so the
-        # commit and the input hash always describe the SAME repo. The find
-        # fallback only fires for a `path:`-subdir checkout (every current
-        # consumer keeps vcpkg-configuration.json at the workspace root, so the
-        # `-f "$cfg"` test is true and the fallback is skipped). It assumes the
-        # consumer's config sorts before any nested foreign config.
-        if [[ -n "$cfg" && -f "$cfg" ]]; then
-          root="$(cd "$(dirname "$cfg")" && pwd)"
-        else
-          root="${{ github.workspace }}"
-        fi
-        echo "Hashing vcpkg manifest inputs under: $root"
-        # Explicit consumer files (NOT a workspace glob): the root manifest pair
-        # plus its sibling triplets/ definitions. Relative paths + contents are
-        # hashed, so the absolute checkout dir does not affect the digest.
-        list="$(mktemp)"
-        for f in vcpkg.json vcpkg-configuration.json; do
-          [[ -f "$root/$f" ]] && echo "$f" >> "$list"
-        done
-        if [[ -d "$root/triplets" ]]; then
-          (cd "$root" && find triplets -type f) >> "$list"
-        fi
-        LC_ALL=C sort -o "$list" "$list"  # locale-stable ordering
-        echo "Files folded into the cache key:"; sed 's/^/  /' "$list"
-        digest="$(while IFS= read -r rel; do
-          printf '%s\0' "$rel"
-          sha256sum "$root/$rel" | awk '{print $1}'
-        done < "$list" | sha256sum | awk '{print $1}')"
-        echo "Resolved vcpkg inputs hash: $digest"
-        echo "inputs_hash=$digest" >> "$GITHUB_OUTPUT"
-
-    - name: Prepare binary cache directory
-      shell: bash
-      run: mkdir -p "${{ github.workspace }}/.vcpkg-binary-cache"
-
-    # The compiler hash sits right after the triplet so every restore-key but the
-    # last stays within one compiler. The last, the bare triplet prefix, is for a
-    # compiler's first run (and the first run after this key format changed): it
-    # restores another compiler's archives, which vcpkg ignores, then builds and
-    # saves this compiler's own key, since a restore-key hit is not an exact hit.
-    - name: Compose cache key
-      id: key
-      shell: bash
-      run: |
-        set -euo pipefail
-        base="vcpkg-bin-${{ runner.os }}-${{ runner.arch }}-${{ inputs.triplet }}-"
-        cc="${base}cc${{ steps.compiler.outputs.hash }}-"
-        commit="${cc}${{ steps.resolve.outputs.commit }}-"
-        img="${commit}img${{ steps.img.outputs.version }}-"
-        echo "key=${img}${{ steps.inputs.outputs.inputs_hash }}" >> "$GITHUB_OUTPUT"
-        {
-          echo "restore-keys<<EOF"
-          printf '%s\n' "$img" "$commit" "$cc" "$base"
-          echo "EOF"
-        } >> "$GITHUB_OUTPUT"
-        echo "Cache key: ${img}${{ steps.inputs.outputs.inputs_hash }}"
-
-    # The key embeds the runner image version (`img<version>`) because vcpkg's
-    # per-package ABI hash includes the compiler hash. When GitHub bumps the
-    # runner image (and with it MSVC/gcc), the old binary archives become ABI
-    # mismatches ("Restored 0 packages") and vcpkg rebuilds from source. Without
-    # the image in the key, the manifest-hash key still hits exactly, so
-    # actions/cache skips the post-save and the rebuilt archives are never
-    # persisted — making the rebuild permanent (observed: anolis Windows ~34min,
-    # provider-sim Windows+FluxGraph ~2h every run after an MSVC bump).
-    # The image version comes from steps.img above. Do NOT revert it to
-    # `${{ env.ImageVersion }}`: the env.* context excludes runner process vars,
-    # so it expands to empty and the key stops rotating. On self-hosted runners
-    # $ImageVersion is unset and resolves to `imgunknown` — fine, a self-managed
-    # toolchain is stable and needs no ABI rotation.
-    # Writer jobs (cache-write=true, default) restore AND save the cache, except
-    # on pull requests. A pull request's entry can be read only by that pull
-    # request, but it counts against the repository's cache limit, so saving
-    # one evicts the entries on the default branch that every other run
-    # restores. vcpkg itself stays in readwrite mode there (see Configure
-    # environment), so builds later in the same job still reuse its packages.
-    - name: Restore + save vcpkg binary cache (writer)
-      if: inputs.cache-write == 'true' && github.event_name != 'pull_request'
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-      with:
-        path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: ${{ steps.key.outputs.key }}
-        restore-keys: ${{ steps.key.outputs.restore-keys }}
-
-    # Reader jobs (cache-write=false) restore only — no post-save — so a subset
-    # build cannot overwrite the shared key with an incomplete cache. Pull
-    # request runs take this path too.
-    - name: Restore vcpkg binary cache (read-only)
-      if: inputs.cache-write != 'true' || github.event_name == 'pull_request'
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-      with:
-        path: ${{ github.workspace }}/.vcpkg-binary-cache
-        key: ${{ steps.key.outputs.key }}
-        restore-keys: ${{ steps.key.outputs.restore-keys }}
 
     - name: Clone vcpkg
       shell: bash
@@ -279,9 +133,19 @@ runs:
 
     - name: Configure environment
       shell: bash
-      run: |
-        set -euo pipefail
-        echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> "$GITHUB_ENV"
-        mode="read"
-        if [[ "${{ inputs.cache-write }}" == "true" ]]; then mode="readwrite"; fi
-        echo "VCPKG_BINARY_SOURCES=clear;files,${{ github.workspace }}/.vcpkg-binary-cache,$mode" >> "$GITHUB_ENV"
+      run: echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> "$GITHUB_ENV"
+
+    - name: Configure the binary cache
+      id: cache
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        REF: ${{ github.ref }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        ENDPOINT: ${{ inputs.r2-endpoint }}
+        BUCKET: ${{ inputs.r2-bucket }}
+        READ_ID: ${{ inputs.r2-read-access-key-id }}
+        READ_SECRET: ${{ inputs.r2-read-secret-access-key }}
+        WRITE_ID: ${{ inputs.r2-write-access-key-id }}
+        WRITE_SECRET: ${{ inputs.r2-write-secret-access-key }}
+      run: bash "${{ github.action_path }}/binary-source.sh"

@@ -215,6 +215,42 @@ short SHA by default); the `metrics-json-path` output gives that file's path.
 
 ### The vcpkg binary cache
 
+From v3, `setup-vcpkg` keeps vcpkg's built packages in the org's Cloudflare R2
+bucket (`vars.VCPKG_R2_BUCKET`), through vcpkg's `x-aws` provider and the AWS
+CLI on the runner images. Each package is one archive named by vcpkg's ABI
+hash, which covers the triplet, compiler, port version, features and
+dependencies, so a changed package misses on its own and everything else still
+restores. There is no cache key to keep in sync and no per-repository limit.
+
+What a run does with the bucket depends on its event:
+
+| Run | Mode | Token |
+| --- | --- | --- |
+| `push` or `workflow_dispatch` on the default branch, `schedule` | `readwrite` | write |
+| A pull request from a branch in the repo, any other branch or event | `read` | read |
+| A fork pull request (no secrets) | none: builds without the remote cache | none |
+
+A job also keeps its own packages between builds within the job. Packages go
+up in one PUT each, not a multipart upload, since a multipart upload failed
+intermittently against R2 (#175), and vcpkg reports a failed upload only as a
+warning. A composite action can't read secrets, so the caller passes them:
+
+```yaml
+- uses: anolishq/.github/.github/actions/setup-vcpkg@<sha> # v3
+  with:
+    r2-endpoint: ${{ vars.VCPKG_R2_ENDPOINT }}
+    r2-bucket: ${{ vars.VCPKG_R2_BUCKET }}
+    r2-read-access-key-id: ${{ secrets.VCPKG_R2_READ_ACCESS_KEY_ID }}
+    r2-read-secret-access-key: ${{ secrets.VCPKG_R2_READ_SECRET_ACCESS_KEY }}
+    r2-write-access-key-id: ${{ secrets.VCPKG_R2_WRITE_ACCESS_KEY_ID }}
+    r2-write-secret-access-key: ${{ secrets.VCPKG_R2_WRITE_SECRET_ACCESS_KEY }}
+```
+
+The `binary-cache-mode` output says which mode the run got. v3 ignores the
+`triplet` and `cache-write` inputs, with a warning, for one release.
+
+#### v2, until the reusable workflows move to v3
+
 `valgrind-leak.yml`, `fuzz.yml`, `clang-tidy-diff.yml` and
 `dependency-scan.yml` install their dependencies with the `setup-vcpkg` action.
 It caches vcpkg's built packages under this key:
