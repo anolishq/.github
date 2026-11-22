@@ -49,35 +49,48 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup vcpkg
+        id: setup
         uses: ./.github/actions/setup-vcpkg
         with:
           vcpkg-commit: "66c0373dc7fca549e5803087b9487edfe3aca0a1"
-          triplet: ${{ matrix.triplet }}
+          r2-endpoint: ${{ vars.VCPKG_R2_ENDPOINT }}
+          r2-bucket: ${{ vars.VCPKG_R2_BUCKET }}
+          r2-read-access-key-id: ${{ secrets.VCPKG_R2_READ_ACCESS_KEY_ID }}
+          r2-read-secret-access-key: ${{ secrets.VCPKG_R2_READ_SECRET_ACCESS_KEY }}
+          r2-write-access-key-id: ${{ secrets.VCPKG_R2_WRITE_ACCESS_KEY_ID }}
+          r2-write-secret-access-key: ${{ secrets.VCPKG_R2_WRITE_SECRET_ACCESS_KEY }}
 
-      - name: Verify environment
+      # A pull request from a branch here reads, a push to main writes, and a
+      # fork pull request, which gets no secrets, builds without the cache.
+      - name: Verify the binary cache mode for this event
         shell: bash
+        env:
+          MODE: ${{ steps.setup.outputs.binary-cache-mode }}
+          EXPECTED: >-
+            ${{ github.event_name == 'push' && 'readwrite'
+            || (github.event.pull_request.head.repo.full_name == github.repository && 'read' || 'none') }}
         run: |
           set -euo pipefail
           echo "VCPKG_ROOT=$VCPKG_ROOT"
           echo "VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES"
-          [[ -n "$VCPKG_ROOT" ]] || { echo "FAIL: VCPKG_ROOT not set"; exit 1; }
-          [[ "$VCPKG_BINARY_SOURCES" == *"files,"* ]] || { echo "FAIL: VCPKG_BINARY_SOURCES not configured"; exit 1; }
           "$VCPKG_ROOT/vcpkg" version
-          [[ -d "${{ github.workspace }}/.vcpkg-binary-cache" ]] || { echo "FAIL: binary cache dir missing"; exit 1; }
-          echo "All checks passed"
+          [[ "$MODE" == "$EXPECTED" ]] || { echo "FAIL: mode $MODE, expected $EXPECTED"; exit 1; }
+          if [[ "$MODE" != none ]]; then
+            [[ "$VCPKG_BINARY_SOURCES" == *"x-aws,s3://"*",$MODE" ]] || { echo "FAIL: no x-aws source in $MODE mode"; exit 1; }
+          fi
+          echo "OK: binary cache mode $MODE"
 
-      - name: Smoke test — install a small package
+      - name: Smoke test — install a small package, then restore it
         shell: bash
         run: |
           set -euo pipefail
-          "$VCPKG_ROOT/vcpkg" install yaml-cpp --triplet ${{ matrix.triplet }}
-          # Verify binary was cached
-          if ls "${{ github.workspace }}/.vcpkg-binary-cache/"* >/dev/null 2>&1; then
-            echo "OK: binary package cached"
-            ls -la "${{ github.workspace }}/.vcpkg-binary-cache/"
-          else
-            echo "FAIL: no binary packages in cache directory"
-            exit 1
+          "$VCPKG_ROOT/vcpkg" install yaml-cpp --triplet ${{ matrix.triplet }} --x-install-root=first | tee first.log
+          # A second install root: everything comes from a binary cache
+          # (the job's own default cache, and R2 when this run reads it).
+          "$VCPKG_ROOT/vcpkg" install yaml-cpp --triplet ${{ matrix.triplet }} --x-install-root=second | tee second.log
+          grep -q "Restored [1-9][0-9]* package" second.log || { echo "FAIL: the second install restored nothing"; exit 1; }
+          if [[ "${{ steps.setup.outputs.binary-cache-mode }}" == readwrite ]]; then
+            ! grep -q "upload failed" first.log || { echo "FAIL: an upload to R2 failed"; exit 1; }
           fi
 
   test-setup-vcpkg-derived:
@@ -116,8 +129,6 @@ jobs:
 
       - name: Setup vcpkg (derive commit from baseline in subdir, no vcpkg-commit input)
         uses: ./.github/actions/setup-vcpkg
-        with:
-          triplet: ${{ matrix.triplet }}
 
       - name: Verify the derived commit matches the baseline
         shell: bash
@@ -129,61 +140,6 @@ jobs:
           [[ "$head" == "66c0373dc7fca549e5803087b9487edfe3aca0a1" ]] \
             || { echo "FAIL: derived commit ($head) != baseline"; exit 1; }
           echo "OK: vcpkg checked out at the baseline derived from vcpkg-configuration.json"
-
-  # The action's compiler hash must be the one vcpkg puts in each package's ABI
-  # (the last field of triplet_abi in vcpkg_abi_info.txt), with and without
-  # CC/CXX set, or jobs with different compilers share a cache key again.
-  test-setup-vcpkg-compiler:
-    name: Test setup-vcpkg compiler hash (${{ matrix.os }}, ${{ matrix.compiler }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-24.04, compiler: default, cc: "", cxx: "" }
-          - { os: ubuntu-24.04, compiler: clang, cc: clang, cxx: clang++ }
-          - { os: ubuntu-26.04, compiler: default, cc: "", cxx: "" }
-          - { os: ubuntu-26.04, compiler: clang, cc: clang, cxx: clang++ }
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    env:
-      CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cxx }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Install clang
-        if: matrix.compiler == 'clang'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang
-
-      - name: Setup vcpkg
-        id: setup
-        uses: ./.github/actions/setup-vcpkg
-        with:
-          vcpkg-commit: "66c0373dc7fca549e5803087b9487edfe3aca0a1"
-          triplet: x64-linux
-          cache-write: "false"
-
-      - name: Compare with the compiler hash vcpkg records
-        shell: bash
-        env:
-          HASH: ${{ steps.setup.outputs.compiler-hash }}
-          KEY: ${{ steps.setup.outputs.cache-key }}
-        run: |
-          set -euo pipefail
-          echo "action hash: $HASH"
-          echo "cache key:   $KEY"
-          [[ "$KEY" == *"-cc${HASH}-"* ]] || { echo "FAIL: cache key does not carry the compiler hash"; exit 1; }
-          "$VCPKG_ROOT/vcpkg" install yaml-cpp --triplet x64-linux --binarysource=clear
-          abi="$VCPKG_ROOT/installed/x64-linux/share/yaml-cpp/vcpkg_abi_info.txt"
-          vcpkg_hash="$(awk '$1 == "triplet_abi" { n = split($2, f, "-"); print f[n] }' "$abi")"
-          echo "vcpkg hash:  $vcpkg_hash"
-          [[ -n "$vcpkg_hash" && "$HASH" == "$vcpkg_hash" ]] \
-            || { echo "FAIL: action compiler hash ($HASH) != vcpkg's ($vcpkg_hash)"; exit 1; }
-          echo "OK: the cache key carries vcpkg's compiler hash"
 
   test-setup-clang-tools:
     name: Test setup-clang-tools (format + tidy resource dir)
@@ -222,7 +178,6 @@ jobs:
       - test-scripts
       - test-setup-vcpkg
       - test-setup-vcpkg-derived
-      - test-setup-vcpkg-compiler
       - test-setup-clang-tools
     runs-on: ubuntu-latest
     timeout-minutes: 5

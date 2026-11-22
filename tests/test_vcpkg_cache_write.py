@@ -1,5 +1,8 @@
 """Which reusable workflows may save the vcpkg binary cache.
 
+These workflows pin setup-vcpkg v2.11 until they move to v3 (#174); the
+action's own v3 behaviour is in test_setup_vcpkg_binary_source.py.
+
 Run: python3 -m unittest discover tests
 
 setup-vcpkg keys the binary cache by os, arch, triplet, compiler, vcpkg
@@ -24,7 +27,6 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
-ACTION = ROOT / ".github" / "actions" / "setup-vcpkg" / "action.yml"
 
 # workflow -> the default of its cache-write input
 CACHE_WRITE_DEFAULT = {
@@ -103,32 +105,6 @@ class ReusableWorkflowsChooseTest(unittest.TestCase):
                     self.assertIn("cache-write", step.get("with", {}))
         # The scan saw the workflows this module is about.
         self.assertTrue(set(CACHE_WRITE_DEFAULT) <= set(checked), checked)
-
-
-class SetupVcpkgDefaultTest(unittest.TestCase):
-    def test_action_still_writes_by_default(self):
-        """Callers' main builds call the action directly and rely on it saving."""
-        spec = load(ACTION)["inputs"]["cache-write"]
-        self.assertEqual(spec.get("default"), "true")
-
-
-class PullRequestsDoNotSaveTest(unittest.TestCase):
-    def step(self, name):
-        return next(s for s in load(ACTION)["runs"]["steps"] if s.get("name") == name)
-
-    def test_the_saving_step_does_not_run_on_pull_requests(self):
-        self.assertEqual(self.step("Restore + save vcpkg binary cache (writer)")["if"],
-                         "inputs.cache-write == 'true' && github.event_name != 'pull_request'")
-
-    def test_pull_requests_still_restore(self):
-        self.assertEqual(self.step("Restore vcpkg binary cache (read-only)")["if"],
-                         "inputs.cache-write != 'true' || github.event_name == 'pull_request'")
-
-    def test_vcpkg_mode_does_not_depend_on_the_event(self):
-        """A job building twice, as provider-sim's FluxGraph lane does, reuses its own packages."""
-        run = self.step("Configure environment")["run"]
-        self.assertIn('if [[ "${{ inputs.cache-write }}" == "true" ]]; then mode="readwrite"; fi', run)
-        self.assertNotIn("event_name", run)
 
 
 if __name__ == "__main__":
