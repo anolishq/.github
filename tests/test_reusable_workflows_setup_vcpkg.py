@@ -9,6 +9,7 @@ add `secrets: inherit`; without it the job builds without the remote cache.
 The `cache-write` input, and `triplet` where it only named the old cache key,
 stay accepted so existing callers keep working, and are ignored.
 """
+import re
 import unittest
 from pathlib import Path
 
@@ -16,7 +17,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ROOT / ".github" / "workflows"
-V3_PIN = "anolishq/.github/.github/actions/setup-vcpkg@655d35b035ac85416e33be70d810b7e8b17b15cb"
+# Any v3 release, pinned by SHA with its tag as the comment, so Renovate can
+# move the pin within v3 without this test failing; a v2 pin still fails.
+V3_PIN = re.compile(r"uses: anolishq/\.github/\.github/actions/setup-vcpkg@[0-9a-f]{40} # v3(\.\d+)?$")
 
 R2_INPUTS = {
     "r2-endpoint": "${{ vars.VCPKG_R2_ENDPOINT }}",
@@ -60,8 +63,16 @@ class ReusableWorkflowsUseV3Test(unittest.TestCase):
     def test_each_step_pins_v3_and_passes_the_r2_inputs(self):
         for name, _, step in reusable_steps():
             with self.subTest(workflow=name):
-                self.assertEqual(step["uses"], V3_PIN)
                 self.assertEqual(step.get("with"), R2_INPUTS)
+
+    def test_each_pin_is_a_v3_release(self):
+        # The tag comment is lost in YAML parsing, so read the lines.
+        for name in sorted(EXPECTED):
+            lines = [line.strip() for line in (WORKFLOWS / name).read_text(encoding="utf-8").splitlines()
+                     if "/actions/setup-vcpkg@" in line]
+            with self.subTest(workflow=name):
+                self.assertEqual(len(lines), 1)
+                self.assertRegex(lines[0], V3_PIN)
 
     def test_old_inputs_stay_accepted(self):
         """Removing a workflow_call input fails every caller that still passes it."""
