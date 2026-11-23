@@ -93,7 +93,7 @@ jobs:
           python-version: "3.12"
 
       - name: Setup vcpkg
-        uses: anolishq/.github/.github/actions/setup-vcpkg@655d35b035ac85416e33be70d810b7e8b17b15cb # v3.0
+        uses: anolishq/.github/.github/actions/setup-vcpkg@b11cc3033d90ce17a35fdcffae9bff6388542f6a # v3.1
         # The caller passes the R2 secrets with `secrets: inherit`; without
         # them the job builds without the remote binary cache.
         with:
