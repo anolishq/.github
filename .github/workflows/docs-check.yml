@@ -56,7 +56,7 @@ jobs:
       - name: Markdown Lint
         id: lint
         continue-on-error: true
-        uses: davidanson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25
+        uses: davidanson/markdownlint-cli2-action@3ce8f712b5d8f31acd8e201be6d97e3d2bb23eb7 # v25
         with:
           globs: ${{ inputs.markdownlint-globs }}
 
